@@ -31,22 +31,37 @@ Automated game downloader yang mendukung multiple websites sekaligus:
 
 ## Usage
 
-### Method 1: Run Launcher GUI
+### ⚡ Method 1: Direct EXE (Recommended)
 
-```bash
-python game_launcher_multi_site.py
+**Windows users** - Jalankan langsung:
 ```
+dist/GameLauncher.exe
+```
+
+atau double-click `dist/RunGameLauncher.bat`
 
 **Steps:**
 1. Paste daftar game ke text box (atau gunakan "Auto Load" dari clipboard)
 2. Klik "Parse Text" untuk parsing
-3. Selec games yang ingin didownload
+3. Select games yang ingin didownload
 4. Klik "Run All" atau "Start Selected"
 5. Program akan buka tab di Brave Browser
 6. Manual click "Download" untuk setiap game
 7. IDM akan auto-capture download link
 
-### Method 2: Direct Core Usage
+### Method 2: Run Python Script
+
+Jika ingin menjalankan dari source code:
+```bash
+python game_launcher_multi_site.py
+```
+
+Pastikan sudah install dependencies:
+```bash
+pip install pyperclip
+```
+
+### Method 3: Direct Core Usage
 
 ```python
 from game_scraper_multi_site import open_game_search_tabs
@@ -101,15 +116,23 @@ d:\autoopentabbrave\
 
 ## Requirements
 
+### Untuk menjalankan EXE (Recommended)
+- ✅ **TIDAK perlu install apapun!**
+- Brave Browser dengan IDM Extension
+
+### Untuk menjalankan dari Python source
 - Python 3.10+
 - tkinter (included dengan Python)
 - pyperclip (clipboard support)
-- Brave Browser dengan IDM Extension
 
 Install dependencies:
 ```bash
 pip install pyperclip
 ```
+
+### Common Requirements
+- Brave Browser (dapat download di https://brave.com)
+- IDM Extension di Brave (untuk auto-capture download)
 
 ## Features Detail
 
@@ -214,6 +237,30 @@ python game_launcher_multi_site.py
 ```
 
 Legacy files masih bisa digunakan untuk PS2-only workflow.
+
+## Create Desktop Shortcut (Windows)
+
+### Option 1: PowerShell Script (Automatic)
+Jalankan PowerShell sebagai Admin:
+```powershell
+$ExePath = "D:\autoopentabbrave\dist\GameLauncher.exe"
+$ShortcutPath = "$env:USERPROFILE\Desktop\GameLauncher.lnk"
+$Shell = New-Object -ComObject WScript.Shell
+$Shortcut = $Shell.CreateShortcut($ShortcutPath)
+$Shortcut.TargetPath = $ExePath
+$Shortcut.IconLocation = $ExePath
+$Shortcut.Save()
+Write-Host "Shortcut created at $ShortcutPath"
+```
+
+### Option 2: Manual
+1. Buka Windows Explorer
+2. Navigate ke `dist` folder
+3. Right-click pada `GameLauncher.exe`
+4. Pilih "Send to" → "Desktop (create shortcut)"
+5. Double-click shortcut untuk jalankan
+
+Sekarang bisa double-click di Desktop untuk jalankan program! 🎮
 
 ## Future Enhancements
 
