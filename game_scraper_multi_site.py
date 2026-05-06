@@ -166,8 +166,8 @@ def pick_best_game_link(game_name: str, links: list[str], site_type: str = "roms
     for link in links:
         if site_type == "romsfun":
             slug = link.rsplit("/", 1)[-1].replace(".html", "")
-        else:  # steamrip
-            slug = link.split("/")[-1].replace("-", " ")
+        else:  # steamrip - remove trailing slash first before extracting last path component
+            slug = link.rstrip("/").split("/")[-1].replace("-", " ")
         
         score = SequenceMatcher(None, target, normalize_name(slug)).ratio()
         if score > best_score:
