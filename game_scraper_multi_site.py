@@ -106,6 +106,30 @@ def extract_steamrip_game_links(html: str) -> list[str]:
     return unique_links[:10]  # Return top 10 results
 
 
+def extract_steamrip_priority_host_links(html: str) -> list[str]:
+    """Extract Steamrip host links with priority: Buzzheavier first, then Gofile."""
+    all_links = re.findall(r'href="([^"]+)"', html, flags=re.IGNORECASE)
+    buzzheavier: list[str] = []
+    gofile: list[str] = []
+    seen: set[str] = set()
+
+    for raw_link in all_links:
+        absolute = raw_link if raw_link.startswith("http") else urljoin("https://steamrip.com", raw_link)
+        normalized = absolute.lower()
+
+        if absolute in seen:
+            continue
+
+        if "buzzheavier.com" in normalized:
+            seen.add(absolute)
+            buzzheavier.append(absolute)
+        elif "gofile.io" in normalized:
+            seen.add(absolute)
+            gofile.append(absolute)
+
+    return buzzheavier + gofile
+
+
 def pick_best_game_link(game_name: str, links: list[str], site_type: str = "romsfun") -> str | None:
     """Pick best matching game link"""
     if not links:
@@ -242,6 +266,23 @@ def open_game_search_tabs(
                 # Open the game page
                 browser.open(best_link)
                 time.sleep(1)
+
+                if site_type == "steamrip":
+                    game_page_html = fetch_html(best_link)
+                    if game_page_html:
+                        host_links = extract_steamrip_priority_host_links(game_page_html)
+
+                        if host_links:
+                            selected_host = host_links[0]
+                            host_name = "Buzzheavier" if "buzzheavier.com" in selected_host.lower() else "Gofile"
+                            if log_fn:
+                                log_fn(f"→ Opening prioritized host ({host_name}): {selected_host}")
+                            browser.open(selected_host)
+                            time.sleep(1)
+                        elif log_fn:
+                            log_fn("⚠ No Buzzheavier/Gofile link found on Steamrip game page")
+                    elif log_fn:
+                        log_fn("⚠ Failed to fetch Steamrip game page for host extraction")
                 
                 # Wait for user to manually click download
                 if pause_fn:
