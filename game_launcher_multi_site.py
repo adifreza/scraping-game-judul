@@ -50,6 +50,7 @@ class GameLauncherMultiSite(tk.Tk):
         self._pause_event: threading.Event | None = None
         self._parsed_games: list[tuple[str, str]] = []  # (game_name, site_type)
         self._filtered_games: list[tuple[str, str]] = []
+        self._resolved_rows: list[dict[str, str | None]] = []
 
         self._configure_theme()
         self._build_ui()
@@ -90,6 +91,23 @@ class GameLauncherMultiSite(tk.Tk):
             background=[("active", "#f43f5e"), ("disabled", "#7f1d1d")],
             foreground=[("disabled", "#fecdd3")],
         )
+
+        style.configure(
+            "Treeview",
+            background=TEXT_BG,
+            fieldbackground=TEXT_BG,
+            foreground=TEXT_FG,
+            borderwidth=0,
+            rowheight=26,
+        )
+        style.configure(
+            "Treeview.Heading",
+            background="#1f2937",
+            foreground="#f9fafb",
+            relief="flat",
+            font=("Segoe UI", 9, "bold"),
+        )
+        style.map("Treeview", background=[("selected", "#1d4ed8")])
 
     def _build_ui(self) -> None:
         self.configure(bg=APP_BG)
@@ -250,6 +268,51 @@ class GameLauncherMultiSite(tk.Tk):
         ttk.Button(control_frame, text="Select All", command=self._select_all).pack(side="left")
         ttk.Button(control_frame, text="Deselect All", command=self._deselect_all).pack(side="left", padx=(8, 0))
 
+        self.open_browser_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            control_frame,
+            text="Open in Brave",
+            variable=self.open_browser_var,
+        ).pack(side="right")
+
+        # Resolved host links table
+        result_frame = tk.Frame(right_panel, bg=PANEL_BG)
+        result_frame.pack(fill="both", expand=False, padx=14, pady=(0, 14))
+
+        tk.Label(
+            result_frame,
+            text="Resolved Host Links",
+            font=("Segoe UI", 9, "bold"),
+            fg=TEXT_FG,
+            bg=PANEL_BG,
+        ).pack(anchor="w")
+
+        result_table_frame = tk.Frame(result_frame, bg=PANEL_BG)
+        result_table_frame.pack(fill="both", expand=True, pady=(4, 0))
+
+        result_scroll = ttk.Scrollbar(result_table_frame, orient="vertical")
+        result_scroll.pack(side="right", fill="y")
+
+        self.result_tree = ttk.Treeview(
+            result_table_frame,
+            columns=("game", "site", "host", "link"),
+            show="headings",
+            height=6,
+            yscrollcommand=result_scroll.set,
+        )
+        self.result_tree.heading("game", text="Game")
+        self.result_tree.heading("site", text="Site")
+        self.result_tree.heading("host", text="Host")
+        self.result_tree.heading("link", text="Link")
+        self.result_tree.column("game", width=320, anchor="w")
+        self.result_tree.column("site", width=90, anchor="center")
+        self.result_tree.column("host", width=120, anchor="center")
+        self.result_tree.column("link", width=430, anchor="w")
+        self.result_tree.pack(side="left", fill="both", expand=True)
+        result_scroll.config(command=self.result_tree.yview)
+        self.result_tree.bind("<<TreeviewSelect>>", lambda event: self._update_counter())
+        self.result_tree.bind("<Double-1>", lambda event: self._copy_selected_result())
+
         # Status section
         status_frame = tk.Frame(right_panel, bg=PANEL_BG)
         status_frame.pack(fill="x", padx=14, pady=(0, 14))
@@ -290,6 +353,12 @@ class GameLauncherMultiSite(tk.Tk):
             style="Accent.TButton",
             command=self._start_all,
         ).pack(side="left", fill="x", expand=True, padx=(8, 0))
+
+        ttk.Button(
+            button_frame,
+            text="Copy Link",
+            command=self._copy_selected_result,
+        ).pack(side="right")
 
     def _normalize_parsed_title(self, title: str) -> str:
         """Parse and normalize game title from list"""
@@ -353,6 +422,39 @@ class GameLauncherMultiSite(tk.Tk):
         total = self.game_listbox.size()
         self.counter_label.config(text=f"Selected: {selected}/{total}")
 
+    def _clear_results(self) -> None:
+        """Clear resolved host links table"""
+        for item in self.result_tree.get_children():
+            self.result_tree.delete(item)
+        self._resolved_rows = []
+
+    def _append_result_row(self, result: dict[str, str | None]) -> None:
+        """Add one resolved game row to the table"""
+        self._resolved_rows.append(result)
+        game_name = result.get("game_name") or ""
+        site_type = (result.get("site_type") or "").upper()
+        host_name = result.get("selected_host_name") or "-"
+        host_link = result.get("selected_host_link") or "-"
+        self.result_tree.insert("", "end", values=(game_name, site_type, host_name, host_link))
+
+    def _copy_selected_result(self) -> None:
+        """Copy the selected host link to clipboard"""
+        selection = self.result_tree.selection()
+        if not selection:
+            return
+
+        values = self.result_tree.item(selection[0], "values")
+        if len(values) < 4:
+            return
+
+        link = values[3]
+        if not link or link == "-":
+            return
+
+        self.clipboard_clear()
+        self.clipboard_append(link)
+        self._log(f"Copied link: {link}")
+
     def _select_all(self) -> None:
         """Select all games in filtered list"""
         self.game_listbox.select_set(0, "end")
@@ -381,6 +483,7 @@ class GameLauncherMultiSite(tk.Tk):
         self._parsed_games = self._parse_game_text()
         self.filter_var.set("")
         self._apply_filter()
+        self._clear_results()
         self._log(f"Parsed {len(self._parsed_games)} games")
 
     def _paste_clipboard(self) -> None:
@@ -415,6 +518,7 @@ class GameLauncherMultiSite(tk.Tk):
         self.game_listbox.delete(0, "end")
         self._parsed_games = []
         self._filtered_games = []
+        self._clear_results()
         self.filter_var.set("")
         self.status_text.delete("1.0", "end")
         self._update_counter()
@@ -446,23 +550,29 @@ class GameLauncherMultiSite(tk.Tk):
         self.status_text.delete("1.0", "end")
         self._pause_event = threading.Event()
         self._pause_event.set()
+        open_in_browser = bool(self.open_browser_var.get())
 
         self._worker_thread = threading.Thread(
             target=self._download_worker,
-            args=(games,),
+            args=(games, open_in_browser),
             daemon=True,
         )
         self._worker_thread.start()
 
-    def _download_worker(self, games: list[tuple[str, str]]) -> None:
+    def _download_worker(self, games: list[tuple[str, str]], open_in_browser: bool) -> None:
         """Background worker for downloads"""
         try:
             open_game_search_tabs(
                 games,
                 log_fn=self._log,
                 pause_fn=self._show_pause_dialog,
+                result_fn=self._append_result_row,
+                open_in_browser=open_in_browser,
             )
-            self._log("✓ All downloads completed!")
+            if open_in_browser:
+                self._log("✓ All downloads completed!")
+            else:
+                self._log("✓ All links resolved in-app!")
         except Exception as e:
             self._log(f"✗ Error: {str(e)}")
 

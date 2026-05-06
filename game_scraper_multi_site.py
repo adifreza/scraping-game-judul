@@ -19,6 +19,7 @@ IDM_EXTENSION_HINT = "Make sure IDM Integration Module is enabled in Brave."
 
 LogFn = Callable[[str], None]
 PauseFn = Callable[[str], None]
+ResultFn = Callable[[dict[str, str | None]], None]
 
 
 def sanitize_title_for_search(text: str) -> str:
@@ -232,15 +233,19 @@ def open_game_search_tabs(
     game_list: list[tuple[str, str]],  # List of (game_name, site_type)
     log_fn: LogFn | None = None,
     pause_fn: PauseFn | None = None,
-) -> None:
+    result_fn: ResultFn | None = None,
+    open_in_browser: bool = True,
+) -> list[dict[str, str | None]]:
     """
-    Open tabs for each game on appropriate website
+    Resolve tabs for each game on appropriate website.
+    When open_in_browser is False, the function only resolves links and returns them to the caller.
     game_list: List of tuples (game_name, "romsfun" or "steamrip")
     """
     if not game_list:
         return
     
     browser = get_browser()
+    resolved_results: list[dict[str, str | None]] = []
     
     for idx, (game_name, site_type) in enumerate(game_list, 1):
         if log_fn:
@@ -256,10 +261,14 @@ def open_game_search_tabs(
                 site_domain = "steamrip.com"
             
             if log_fn:
-                log_fn(f"→ Opening: {search_url}")
+                if open_in_browser:
+                    log_fn(f"→ Opening: {search_url}")
+                else:
+                    log_fn(f"→ Resolving: {search_url}")
             
             # Open search page
-            browser.open(search_url)
+            if open_in_browser:
+                browser.open(search_url)
             time.sleep(2)
             
             # Fetch search results
@@ -288,8 +297,14 @@ def open_game_search_tabs(
                     log_fn(f"✓ Found: {best_link}")
                 
                 # Open the game page
-                browser.open(best_link)
+                if open_in_browser:
+                    browser.open(best_link)
                 time.sleep(1)
+
+                selected_host = None
+                host_name = None
+                buzzheavier_link = None
+                gofile_link = None
 
                 if site_type == "steamrip":
                     game_page_html = fetch_html(best_link)
@@ -302,16 +317,38 @@ def open_game_search_tabs(
                         if selected_host:
                             host_name = "Buzzheavier" if buzzheavier_link else "Gofile"
                             if log_fn:
-                                log_fn(f"→ Opening prioritized host ({host_name}): {selected_host}")
-                            browser.open(selected_host)
-                            time.sleep(1)
+                                if open_in_browser:
+                                    log_fn(f"→ Opening prioritized host ({host_name}): {selected_host}")
+                                else:
+                                    log_fn(f"→ Resolved prioritized host ({host_name}): {selected_host}")
+                            if open_in_browser:
+                                browser.open(selected_host)
+                                time.sleep(1)
                         elif log_fn:
                             log_fn("⚠ No Buzzheavier/Gofile link found on Steamrip game page")
                     elif log_fn:
                         log_fn("⚠ Failed to fetch Steamrip game page for host extraction")
+
+                if site_type == "romsfun":
+                    selected_host = best_link
+                    host_name = "romsfun"
+
+                result = {
+                    "game_name": game_name,
+                    "site_type": site_type,
+                    "search_url": search_url,
+                    "game_url": best_link,
+                    "selected_host_name": host_name,
+                    "selected_host_link": selected_host,
+                    "buzzheavier_link": buzzheavier_link if site_type == "steamrip" else None,
+                    "gofile_link": gofile_link if site_type == "steamrip" else None,
+                }
+                resolved_results.append(result)
+                if result_fn:
+                    result_fn(result)
                 
                 # Wait for user to manually click download
-                if pause_fn:
+                if pause_fn and open_in_browser:
                     pause_fn(f"Click 'Download' for: {game_name}")
             else:
                 if log_fn:
@@ -326,3 +363,5 @@ def open_game_search_tabs(
     
     if log_fn:
         log_fn("All games processed!")
+
+    return resolved_results
