@@ -92,49 +92,70 @@ def extract_ps2_game_links(html: str) -> list[str]:
 
 
 def extract_steamrip_game_links(html: str) -> list[str]:
-    """Extract game links from steamrip.com HTML"""
-    # Look for post links and game titles on steamrip
-    links = re.findall(r'href="([^"]*steamrip\.com[^"]*)"', html, flags=re.IGNORECASE)
+    """Extract game links from steamrip.com search results using all-over-thumb-link pattern"""
+    # More accurate: target links within all-over-thumb-link class (game result cards)
+    pattern = r'<a\s+href="([^"]+)"\s+class="all-over-thumb-link"'
+    links = re.findall(pattern, html, flags=re.IGNORECASE)
+    
     unique_links: list[str] = []
     seen: set[str] = set()
+    
     for link in links:
-        if "/page/" not in link and "/category/" not in link and "#" not in link:
-            absolute = link if link.startswith("http") else urljoin("https://steamrip.com", link)
-            if absolute not in seen and "steamrip.com" in absolute:
-                seen.add(absolute)
-                unique_links.append(absolute)
+        # Convert relative to absolute URLs
+        absolute = link if link.startswith("http") else urljoin("https://steamrip.com/", link)
+        
+        # Filter out unwanted pages
+        absolute_lower = absolute.lower()
+        if any(x in absolute_lower for x in ["/page/", "/category/", "#", "/author/", "/tag/"]):
+            continue
+        
+        if absolute not in seen:
+            seen.add(absolute)
+            unique_links.append(absolute)
+    
     return unique_links[:10]  # Return top 10 results
 
 
 def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | None]:
     """
-    Extract Steamrip download links with priority: Buzzheavier first, then Gofile.
+    Extract Steamrip download links from game page with priority: Buzzheavier first, then Gofile.
+    Looks for host links near their section headers.
     Returns: (buzzheavier_link, gofile_link)
     """
     buzzheavier_link = None
     gofile_link = None
     
-    # Extract all href attributes
-    all_links = re.findall(r'href="([^"]+)"', html, flags=re.IGNORECASE)
+    # Split HTML by lines for context-aware searching
+    lines = html.split('\n')
     
-    seen_buzzheavier = set()
-    seen_gofile = set()
-    
-    for raw_link in all_links:
-        absolute = raw_link if raw_link.startswith("http") else urljoin("https://steamrip.com", raw_link)
-        normalized = absolute.lower()
+    for i, line in enumerate(lines):
+        line_lower = line.lower()
         
-        # Prioritize Buzzheavier
-        if "buzzheavier.com" in normalized and not buzzheavier_link:
-            if absolute not in seen_buzzheavier:
-                seen_buzzheavier.add(absolute)
-                buzzheavier_link = absolute
+        # Look for Buzzheavier section and grab the next href
+        if "buzzheavier" in line_lower and not buzzheavier_link:
+            # Search in this line and next 5 lines for an href
+            for j in range(i, min(i + 6, len(lines))):
+                href_matches = re.findall(r'href="([^"]+)"', lines[j], re.IGNORECASE)
+                for href in href_matches:
+                    absolute = href if href.startswith("http") else urljoin("https://steamrip.com", href)
+                    if "buzzheavier.com" in absolute.lower():
+                        buzzheavier_link = absolute
+                        break
+                if buzzheavier_link:
+                    break
         
-        # Fallback to Gofile
-        elif "gofile.io" in normalized and not gofile_link:
-            if absolute not in seen_gofile:
-                seen_gofile.add(absolute)
-                gofile_link = absolute
+        # Look for Gofile section and grab the next href
+        if "gofile" in line_lower and not gofile_link:
+            # Search in this line and next 5 lines for an href
+            for j in range(i, min(i + 6, len(lines))):
+                href_matches = re.findall(r'href="([^"]+)"', lines[j], re.IGNORECASE)
+                for href in href_matches:
+                    absolute = href if href.startswith("http") else urljoin("https://steamrip.com", href)
+                    if "gofile.io" in absolute.lower():
+                        gofile_link = absolute
+                        break
+                if gofile_link:
+                    break
         
         # Stop if we have both
         if buzzheavier_link and gofile_link:
