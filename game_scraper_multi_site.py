@@ -106,28 +106,41 @@ def extract_steamrip_game_links(html: str) -> list[str]:
     return unique_links[:10]  # Return top 10 results
 
 
-def extract_steamrip_priority_host_links(html: str) -> list[str]:
-    """Extract Steamrip host links with priority: Buzzheavier first, then Gofile."""
+def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | None]:
+    """
+    Extract Steamrip download links with priority: Buzzheavier first, then Gofile.
+    Returns: (buzzheavier_link, gofile_link)
+    """
+    buzzheavier_link = None
+    gofile_link = None
+    
+    # Extract all href attributes
     all_links = re.findall(r'href="([^"]+)"', html, flags=re.IGNORECASE)
-    buzzheavier: list[str] = []
-    gofile: list[str] = []
-    seen: set[str] = set()
-
+    
+    seen_buzzheavier = set()
+    seen_gofile = set()
+    
     for raw_link in all_links:
         absolute = raw_link if raw_link.startswith("http") else urljoin("https://steamrip.com", raw_link)
         normalized = absolute.lower()
-
-        if absolute in seen:
-            continue
-
-        if "buzzheavier.com" in normalized:
-            seen.add(absolute)
-            buzzheavier.append(absolute)
-        elif "gofile.io" in normalized:
-            seen.add(absolute)
-            gofile.append(absolute)
-
-    return buzzheavier + gofile
+        
+        # Prioritize Buzzheavier
+        if "buzzheavier.com" in normalized and not buzzheavier_link:
+            if absolute not in seen_buzzheavier:
+                seen_buzzheavier.add(absolute)
+                buzzheavier_link = absolute
+        
+        # Fallback to Gofile
+        elif "gofile.io" in normalized and not gofile_link:
+            if absolute not in seen_gofile:
+                seen_gofile.add(absolute)
+                gofile_link = absolute
+        
+        # Stop if we have both
+        if buzzheavier_link and gofile_link:
+            break
+    
+    return (buzzheavier_link, gofile_link)
 
 
 def pick_best_game_link(game_name: str, links: list[str], site_type: str = "romsfun") -> str | None:
@@ -270,11 +283,13 @@ def open_game_search_tabs(
                 if site_type == "steamrip":
                     game_page_html = fetch_html(best_link)
                     if game_page_html:
-                        host_links = extract_steamrip_priority_host_links(game_page_html)
-
-                        if host_links:
-                            selected_host = host_links[0]
-                            host_name = "Buzzheavier" if "buzzheavier.com" in selected_host.lower() else "Gofile"
+                        buzzheavier_link, gofile_link = extract_steamrip_priority_host_links(game_page_html)
+                        
+                        # Prioritize Buzzheavier, fallback to Gofile
+                        selected_host = buzzheavier_link or gofile_link
+                        
+                        if selected_host:
+                            host_name = "Buzzheavier" if buzzheavier_link else "Gofile"
                             if log_fn:
                                 log_fn(f"→ Opening prioritized host ({host_name}): {selected_host}")
                             browser.open(selected_host)
