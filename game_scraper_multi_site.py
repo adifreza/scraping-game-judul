@@ -127,7 +127,7 @@ def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | N
     </p>
     
     <p>
-      <strong>GOFILE</strong><br>
+      <span style="color: #ff9900;"><strong>GOFILE</strong></span><br>
       <a href="//www.filecrypt.cc/..." class="shortc-button medium purple">DOWNLOAD HERE</a>
     </p>
     
@@ -143,9 +143,10 @@ def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | N
         link = buzzheavier_matches[0]
         buzzheavier_link = link if link.startswith("http") else "https:" + link
     
-    # Pattern 2: Find Gofile link (look for <strong>GOFILE</strong> or <strong>GoFile</strong> followed by href)
-    gofile_pattern = r'<strong>(?:GOFILE|GoFile|Gofile)</strong>\s*<br>\s*<a\s+href="([^"]+)"'
-    gofile_matches = re.findall(gofile_pattern, html, re.IGNORECASE)
+    # Pattern 2: Find Gofile link (may be wrapped in <span>, look for "GOFILE" followed by href)
+    # Handles both: <strong>GOFILE</strong> and <span>...<strong>GOFILE</strong></span>
+    gofile_pattern = r'<strong>(?:GOFILE|GoFile|Gofile)</strong>.*?<a\s+href="([^"]+)"'
+    gofile_matches = re.findall(gofile_pattern, html, re.IGNORECASE | re.DOTALL)
     if gofile_matches:
         link = gofile_matches[0]
         gofile_link = link if link.startswith("http") else "https:" + link
