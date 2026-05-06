@@ -119,47 +119,36 @@ def extract_steamrip_game_links(html: str) -> list[str]:
 def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | None]:
     """
     Extract Steamrip download links from game page with priority: Buzzheavier first, then Gofile.
-    Looks for host links near their section headers.
+    
+    HTML Structure on game page:
+    <p>
+      <strong>Buzzheavier</strong><br>
+      <a href="//bzzhr.to/..." class="shortc-button medium purple">DOWNLOAD HERE</a>
+    </p>
+    
+    <p>
+      <strong>GOFILE</strong><br>
+      <a href="//www.filecrypt.cc/..." class="shortc-button medium purple">DOWNLOAD HERE</a>
+    </p>
+    
     Returns: (buzzheavier_link, gofile_link)
     """
     buzzheavier_link = None
     gofile_link = None
     
-    # Split HTML by lines for context-aware searching
-    lines = html.split('\n')
+    # Pattern 1: Find Buzzheavier link (look for <strong>Buzzheavier</strong> followed by href)
+    buzzheavier_pattern = r'<strong>Buzzheavier</strong>\s*<br>\s*<a\s+href="([^"]+)"'
+    buzzheavier_matches = re.findall(buzzheavier_pattern, html, re.IGNORECASE)
+    if buzzheavier_matches:
+        link = buzzheavier_matches[0]
+        buzzheavier_link = link if link.startswith("http") else "https:" + link
     
-    for i, line in enumerate(lines):
-        line_lower = line.lower()
-        
-        # Look for Buzzheavier section and grab the next href
-        if "buzzheavier" in line_lower and not buzzheavier_link:
-            # Search in this line and next 5 lines for an href
-            for j in range(i, min(i + 6, len(lines))):
-                href_matches = re.findall(r'href="([^"]+)"', lines[j], re.IGNORECASE)
-                for href in href_matches:
-                    absolute = href if href.startswith("http") else urljoin("https://steamrip.com", href)
-                    if "buzzheavier.com" in absolute.lower():
-                        buzzheavier_link = absolute
-                        break
-                if buzzheavier_link:
-                    break
-        
-        # Look for Gofile section and grab the next href
-        if "gofile" in line_lower and not gofile_link:
-            # Search in this line and next 5 lines for an href
-            for j in range(i, min(i + 6, len(lines))):
-                href_matches = re.findall(r'href="([^"]+)"', lines[j], re.IGNORECASE)
-                for href in href_matches:
-                    absolute = href if href.startswith("http") else urljoin("https://steamrip.com", href)
-                    if "gofile.io" in absolute.lower():
-                        gofile_link = absolute
-                        break
-                if gofile_link:
-                    break
-        
-        # Stop if we have both
-        if buzzheavier_link and gofile_link:
-            break
+    # Pattern 2: Find Gofile link (look for <strong>GOFILE</strong> or <strong>GoFile</strong> followed by href)
+    gofile_pattern = r'<strong>(?:GOFILE|GoFile|Gofile)</strong>\s*<br>\s*<a\s+href="([^"]+)"'
+    gofile_matches = re.findall(gofile_pattern, html, re.IGNORECASE)
+    if gofile_matches:
+        link = gofile_matches[0]
+        gofile_link = link if link.startswith("http") else "https:" + link
     
     return (buzzheavier_link, gofile_link)
 
