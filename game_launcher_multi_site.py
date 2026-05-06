@@ -1,5 +1,6 @@
 import re
 import threading
+import webbrowser
 import tkinter as tk
 from tkinter import messagebox, ttk
 import pyperclip
@@ -268,13 +269,6 @@ class GameLauncherMultiSite(tk.Tk):
         ttk.Button(control_frame, text="Select All", command=self._select_all).pack(side="left")
         ttk.Button(control_frame, text="Deselect All", command=self._deselect_all).pack(side="left", padx=(8, 0))
 
-        self.open_browser_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(
-            control_frame,
-            text="Open in Brave",
-            variable=self.open_browser_var,
-        ).pack(side="right")
-
         # Resolved host links table
         result_frame = tk.Frame(right_panel, bg=PANEL_BG)
         result_frame.pack(fill="both", expand=False, padx=14, pady=(0, 14))
@@ -311,7 +305,7 @@ class GameLauncherMultiSite(tk.Tk):
         self.result_tree.pack(side="left", fill="both", expand=True)
         result_scroll.config(command=self.result_tree.yview)
         self.result_tree.bind("<<TreeviewSelect>>", lambda event: self._update_counter())
-        self.result_tree.bind("<Double-1>", lambda event: self._copy_selected_result())
+        self.result_tree.bind("<Double-1>", lambda event: self._open_selected_result())
 
         # Status section
         status_frame = tk.Frame(right_panel, bg=PANEL_BG)
@@ -356,9 +350,15 @@ class GameLauncherMultiSite(tk.Tk):
 
         ttk.Button(
             button_frame,
+            text="Open Link",
+            command=self._open_selected_result,
+        ).pack(side="right")
+
+        ttk.Button(
+            button_frame,
             text="Copy Link",
             command=self._copy_selected_result,
-        ).pack(side="right")
+        ).pack(side="right", padx=(0, 8))
 
     def _normalize_parsed_title(self, title: str) -> str:
         """Parse and normalize game title from list"""
@@ -455,6 +455,23 @@ class GameLauncherMultiSite(tk.Tk):
         self.clipboard_append(link)
         self._log(f"Copied link: {link}")
 
+    def _open_selected_result(self) -> None:
+        """Open the selected host link in the default browser"""
+        selection = self.result_tree.selection()
+        if not selection:
+            return
+
+        values = self.result_tree.item(selection[0], "values")
+        if len(values) < 4:
+            return
+
+        link = values[3]
+        if not link or link == "-":
+            return
+
+        webbrowser.open_new_tab(link)
+        self._log(f"Opened link: {link}")
+
     def _select_all(self) -> None:
         """Select all games in filtered list"""
         self.game_listbox.select_set(0, "end")
@@ -550,16 +567,15 @@ class GameLauncherMultiSite(tk.Tk):
         self.status_text.delete("1.0", "end")
         self._pause_event = threading.Event()
         self._pause_event.set()
-        open_in_browser = bool(self.open_browser_var.get())
 
         self._worker_thread = threading.Thread(
             target=self._download_worker,
-            args=(games, open_in_browser),
+            args=(games,),
             daemon=True,
         )
         self._worker_thread.start()
 
-    def _download_worker(self, games: list[tuple[str, str]], open_in_browser: bool) -> None:
+    def _download_worker(self, games: list[tuple[str, str]]) -> None:
         """Background worker for downloads"""
         try:
             open_game_search_tabs(
@@ -567,12 +583,9 @@ class GameLauncherMultiSite(tk.Tk):
                 log_fn=self._log,
                 pause_fn=self._show_pause_dialog,
                 result_fn=self._append_result_row,
-                open_in_browser=open_in_browser,
+                open_in_browser=False,
             )
-            if open_in_browser:
-                self._log("✓ All downloads completed!")
-            else:
-                self._log("✓ All links resolved in-app!")
+            self._log("✓ All links resolved in-app!")
         except Exception as e:
             self._log(f"✗ Error: {str(e)}")
 
