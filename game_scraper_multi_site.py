@@ -136,13 +136,17 @@ def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | N
     """
     buzzheavier_link = None
     gofile_link = None
+
+    def _normalize_protocol_relative(link: str) -> str:
+        return link if link.startswith("http") else "https:" + link
     
-    # Pattern 1: Find Buzzheavier link (look for <strong>Buzzheavier</strong> followed by href)
-    buzzheavier_pattern = r'<strong>Buzzheavier</strong>\s*<br>\s*<a\s+href="([^"]+)"'
-    buzzheavier_matches = re.findall(buzzheavier_pattern, html, re.IGNORECASE)
+    # Pattern 1: Find Buzzheavier link first, even if the label is wrapped or spaced differently.
+    # Steamrip sometimes renders this as plain <strong>Buzzheavier</strong> and sometimes with extra markup around it.
+    buzzheavier_pattern = r'Buzzheavier.*?<a\s+href="([^"]+)"'
+    buzzheavier_matches = re.findall(buzzheavier_pattern, html, re.IGNORECASE | re.DOTALL)
     if buzzheavier_matches:
         link = buzzheavier_matches[0]
-        buzzheavier_link = link if link.startswith("http") else "https:" + link
+        buzzheavier_link = _normalize_protocol_relative(link)
     
     # Pattern 2: Find Gofile link (may be wrapped in <span>, look for "GOFILE" followed by href)
     # Handles both: <strong>GOFILE</strong> and <span>...<strong>GOFILE</strong></span>
@@ -150,7 +154,7 @@ def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | N
     gofile_matches = re.findall(gofile_pattern, html, re.IGNORECASE | re.DOTALL)
     if gofile_matches:
         link = gofile_matches[0]
-        gofile_link = link if link.startswith("http") else "https:" + link
+        gofile_link = _normalize_protocol_relative(link)
     
     return (buzzheavier_link, gofile_link)
 
