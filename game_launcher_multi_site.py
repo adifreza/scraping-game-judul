@@ -3,17 +3,20 @@ import threading
 import webbrowser
 import tkinter as tk
 from tkinter import messagebox, ttk
+from typing import Callable
 import pyperclip
 
 from game_scraper_multi_site import open_game_search_tabs
 
 
-APP_BG = "#111827"
-PANEL_BG = "#0f172a"
-TEXT_BG = "#020617"
-ACCENT = "#ec4899"
-TEXT_FG = "#e5e7eb"
-MUTED_FG = "#cbd5e1"
+APP_BG = "#090d16"      # Deep Midnight Black
+PANEL_BG = "#151c2c"    # Card/Panel Slate Blue/Gray
+TEXT_BG = "#0c101b"     # Input/Listbox/Table Deep Navy Black
+ACCENT = "#6366f1"      # Primary Indigo Accent
+ACCENT_PINK = "#db2777" # Pink Accent for start/highlight
+TEXT_FG = "#f1f5f9"     # Clean White/Slate 100
+MUTED_FG = "#94a3b8"    # Muted Gray/Slate 400
+BORDER_COLOR = "#334155" # Subtle border color
 
 SAMPLE_TEXT = """Daftar Game Pesanan
 
@@ -65,50 +68,91 @@ class GameLauncherMultiSite(tk.Tk):
         except tk.TclError:
             pass
 
+        # Scrollbar Styling
         style.configure(
-            "TButton",
-            font=("Segoe UI", 9, "bold"),
-            padding=(12, 8),
-            background="#1f2937",
-            foreground="#f9fafb",
+            "Vertical.TScrollbar",
+            gripcount=0,
+            background="#334155",
+            troughcolor=TEXT_BG,
+            bordercolor=TEXT_BG,
+            darkcolor=TEXT_BG,
+            lightcolor=TEXT_BG,
+            arrowsize=0,
             borderwidth=0,
         )
         style.map(
-            "TButton",
-            background=[("active", "#374151"), ("disabled", "#111827")],
-            foreground=[("disabled", "#6b7280")],
+            "Vertical.TScrollbar",
+            background=[("active", "#475569")],
         )
 
-        style.configure(
-            "Accent.TButton",
-            font=("Segoe UI", 9, "bold"),
-            padding=(12, 8),
-            background=ACCENT,
-            foreground="#ffffff",
-            borderwidth=0,
-        )
-        style.map(
-            "Accent.TButton",
-            background=[("active", "#f43f5e"), ("disabled", "#7f1d1d")],
-            foreground=[("disabled", "#fecdd3")],
-        )
-
+        # Treeview Styling
         style.configure(
             "Treeview",
             background=TEXT_BG,
             fieldbackground=TEXT_BG,
             foreground=TEXT_FG,
             borderwidth=0,
-            rowheight=26,
+            rowheight=32,
+            font=("Segoe UI", 9),
         )
         style.configure(
             "Treeview.Heading",
-            background="#1f2937",
-            foreground="#f9fafb",
+            background="#1e293b",
+            foreground="#f8fafc",
             relief="flat",
             font=("Segoe UI", 9, "bold"),
+            borderwidth=0,
         )
-        style.map("Treeview", background=[("selected", "#1d4ed8")])
+        style.map(
+            "Treeview",
+            background=[("selected", "#4f46e5")],
+            foreground=[("selected", "#ffffff")],
+        )
+
+    def _create_btn(
+        self,
+        parent: tk.Widget,
+        text: str,
+        command: Callable[[], None],
+        style_type: str = "normal",
+        **pack_kwargs
+    ) -> tk.Button:
+        if style_type == "accent":
+            bg = ACCENT
+            fg = "#ffffff"
+            active_bg = "#4f46e5"
+        elif style_type == "accent_pink":
+            bg = ACCENT_PINK
+            fg = "#ffffff"
+            active_bg = "#be185d"
+        else:
+            bg = "#1e293b"
+            fg = "#f1f5f9"
+            active_bg = "#334155"
+
+        btn = tk.Button(
+            parent,
+            text=text,
+            command=command,
+            bg=bg,
+            fg=fg,
+            activebackground=active_bg,
+            activeforeground="#ffffff",
+            font=("Segoe UI", 9, "bold"),
+            relief="flat",
+            bd=0,
+            padx=12,
+            pady=6,
+            cursor="hand2",
+        )
+        
+        # Hover colors
+        btn.bind("<Enter>", lambda e: btn.config(bg=active_bg))
+        btn.bind("<Leave>", lambda e: btn.config(bg=bg))
+        
+        if pack_kwargs:
+            btn.pack(**pack_kwargs)
+        return btn
 
     def _build_ui(self) -> None:
         self.configure(bg=APP_BG)
@@ -136,21 +180,26 @@ class GameLauncherMultiSite(tk.Tk):
         body.pack(fill="both", expand=True, padx=20, pady=10)
 
         # Left Panel - Input
-        left_panel = tk.Frame(body, bg=PANEL_BG, bd=1, relief="solid")
-        left_panel.pack(side="left", fill="both", expand=False)
-        left_panel.configure(width=550)
+        left_panel = tk.Frame(body, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR, bd=0)
+        left_panel.pack(side="left", fill="both", expand=False, padx=(0, 10))
+        left_panel.configure(width=500)
         left_panel.pack_propagate(False)
 
         left_header = tk.Frame(left_panel, bg=PANEL_BG)
         left_header.pack(fill="x", padx=14, pady=(14, 8))
 
+        # Title bar with vertical accent bar
+        left_title_bar = tk.Frame(left_header, bg=PANEL_BG)
+        left_title_bar.pack(anchor="w")
+        accent_strip_left = tk.Frame(left_title_bar, bg=ACCENT, width=4, height=18)
+        accent_strip_left.pack(side="left", fill="y", padx=(0, 8))
         tk.Label(
-            left_header,
+            left_title_bar,
             text="Paste Game Text",
             font=("Segoe UI", 12, "bold"),
-            fg="#f8fafc",
+            fg="#ffffff",
             bg=PANEL_BG,
-        ).pack(anchor="w")
+        ).pack(side="left")
 
         tk.Label(
             left_header,
@@ -158,57 +207,196 @@ class GameLauncherMultiSite(tk.Tk):
             font=("Segoe UI", 9),
             fg=MUTED_FG,
             bg=PANEL_BG,
-            wraplength=500,
+            wraplength=470,
             justify="left",
         ).pack(anchor="w", pady=(4, 0))
 
         button_row = tk.Frame(left_header, bg=PANEL_BG)
         button_row.pack(fill="x", pady=(10, 0))
 
-        ttk.Button(button_row, text="Parse Text", style="Accent.TButton", command=self._parse_text).pack(side="left")
-        ttk.Button(button_row, text="Paste Clipboard", command=self._paste_clipboard).pack(side="left", padx=(8, 0))
-        ttk.Button(button_row, text="Auto Load", command=self._load_initial_text).pack(side="left", padx=(8, 0))
-        ttk.Button(button_row, text="Load Sample", command=self._load_sample).pack(side="left", padx=(8, 0))
-        ttk.Button(button_row, text="Clear", command=self._clear_inputs).pack(side="right")
+        self._create_btn(button_row, text="Parse Text", command=self._parse_text, style_type="accent", side="left")
+        self._create_btn(button_row, text="Paste Clipboard", command=self._paste_clipboard, side="left", padx=(8, 0))
+        self._create_btn(button_row, text="Auto Load", command=self._load_initial_text, side="left", padx=(8, 0))
+        self._create_btn(button_row, text="Load Sample", command=self._load_sample, side="left", padx=(8, 0))
+        self._create_btn(button_row, text="Clear", command=self._clear_inputs, side="right")
 
         text_frame = tk.Frame(left_panel, bg=PANEL_BG)
-        text_frame.pack(fill="both", expand=False, padx=14)
+        text_frame.pack(fill="both", expand=True, padx=14, pady=(0, 14))
 
         text_scroll = ttk.Scrollbar(text_frame, orient="vertical")
         text_scroll.pack(side="right", fill="y")
 
         self.input_text = tk.Text(
             text_frame,
-            height=20,
             wrap="word",
             yscrollcommand=text_scroll.set,
             bg=TEXT_BG,
             fg=TEXT_FG,
-            insertbackground="#f8fafc",
+            insertbackground="#ffffff",
             relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=BORDER_COLOR,
+            highlightcolor=ACCENT,
             font=("Consolas", 10),
         )
         self.input_text.pack(side="left", fill="both", expand=True)
         text_scroll.config(command=self.input_text.yview)
 
         # Right Panel - Game List & Controls
-        right_panel = tk.Frame(body, bg=PANEL_BG, bd=1, relief="solid")
-        right_panel.pack(side="right", fill="both", expand=True, padx=(10, 0))
+        right_panel = tk.Frame(body, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR, bd=0)
+        right_panel.pack(side="right", fill="both", expand=True)
 
         right_header = tk.Frame(right_panel, bg=PANEL_BG)
-        right_header.pack(fill="x", padx=14, pady=(14, 8))
+        right_header.pack(side="top", fill="x", padx=14, pady=(14, 8))
 
+        # Title bar with vertical accent bar
+        right_title_bar = tk.Frame(right_header, bg=PANEL_BG)
+        right_title_bar.pack(anchor="w")
+        accent_strip_right = tk.Frame(right_title_bar, bg=ACCENT, width=4, height=18)
+        accent_strip_right.pack(side="left", fill="y", padx=(0, 8))
         tk.Label(
-            right_header,
+            right_title_bar,
             text="Parsed Games",
             font=("Segoe UI", 12, "bold"),
-            fg="#f8fafc",
+            fg="#ffffff",
             bg=PANEL_BG,
-        ).pack(anchor="w")
+        ).pack(side="left")
 
-        # Filter section
+        # Pack bottom elements first (from bottom to top) to ensure they are never pushed out
+        
+        # 1. Action buttons at the very bottom
+        button_frame = tk.Frame(right_panel, bg=PANEL_BG)
+        button_frame.pack(side="bottom", fill="x", padx=14, pady=(0, 14))
+
+        self._create_btn(
+            button_frame,
+            text="Start Selected",
+            command=self._start_selected,
+            style_type="accent",
+            side="left",
+            fill="x",
+            expand=True,
+        )
+
+        self._create_btn(
+            button_frame,
+            text="Run All",
+            command=self._start_all,
+            style_type="accent_pink",
+            side="left",
+            fill="x",
+            expand=True,
+            padx=(8, 0),
+        )
+
+        self._create_btn(
+            button_frame,
+            text="Open Link",
+            command=self._open_selected_result,
+            side="right",
+        )
+
+        self._create_btn(
+            button_frame,
+            text="Copy Link",
+            command=self._copy_selected_result,
+            side="right",
+            padx=(0, 8),
+        )
+
+        self._create_btn(
+            button_frame,
+            text="Close Steamrip",
+            command=self._close_steamrip_windows,
+            side="right",
+            padx=(0, 8),
+        )
+
+        # 2. Status section just above buttons
+        status_frame = tk.Frame(right_panel, bg=PANEL_BG)
+        status_frame.pack(side="bottom", fill="x", padx=14, pady=(0, 14))
+
+        status_title_bar = tk.Frame(status_frame, bg=PANEL_BG)
+        status_title_bar.pack(anchor="w", pady=(0, 4))
+        accent_strip_status = tk.Frame(status_title_bar, bg=ACCENT, width=4, height=16)
+        accent_strip_status.pack(side="left", fill="y", padx=(0, 8))
+        tk.Label(
+            status_title_bar,
+            text="Status Log",
+            font=("Segoe UI", 9, "bold"),
+            fg=TEXT_FG,
+            bg=PANEL_BG,
+        ).pack(side="left")
+
+        self.status_text = tk.Text(
+            status_frame,
+            height=4,  # Reduced from 6 to 4 to save vertical space
+            wrap="word",
+            bg=TEXT_BG,
+            fg=TEXT_FG,
+            insertbackground="#ffffff",
+            relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=BORDER_COLOR,
+            highlightcolor=ACCENT,
+            font=("Consolas", 9),
+        )
+        self.status_text.pack(fill="both", expand=True)
+
+        # 3. Resolved host links table just above status
+        result_frame = tk.Frame(right_panel, bg=PANEL_BG)
+        result_frame.pack(side="bottom", fill="both", expand=False, padx=14, pady=(0, 14))
+
+        table_title_bar = tk.Frame(result_frame, bg=PANEL_BG)
+        table_title_bar.pack(anchor="w", pady=(0, 4))
+        accent_strip_table = tk.Frame(table_title_bar, bg=ACCENT_PINK, width=4, height=16)
+        accent_strip_table.pack(side="left", fill="y", padx=(0, 8))
+        tk.Label(
+            table_title_bar,
+            text="Resolved Host Links",
+            font=("Segoe UI", 10, "bold"),
+            fg=TEXT_FG,
+            bg=PANEL_BG,
+        ).pack(side="left")
+
+        result_table_frame = tk.Frame(result_frame, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR, bd=0)
+        result_table_frame.pack(fill="both", expand=True)
+
+        result_scroll = ttk.Scrollbar(result_table_frame, orient="vertical")
+        result_scroll.pack(side="right", fill="y")
+
+        self.result_tree = ttk.Treeview(
+            result_table_frame,
+            columns=("game", "site", "host", "link"),
+            show="headings",
+            height=4,  # Reduced from 6 to 4 to save vertical space
+            yscrollcommand=result_scroll.set,
+        )
+        self.result_tree.heading("game", text="Game")
+        self.result_tree.heading("site", text="Site")
+        self.result_tree.heading("host", text="Host")
+        self.result_tree.heading("link", text="Link")
+        self.result_tree.column("game", width=220, anchor="w")
+        self.result_tree.column("site", width=80, anchor="center")
+        self.result_tree.column("host", width=120, anchor="center")
+        self.result_tree.column("link", width=380, anchor="w")
+        self.result_tree.pack(side="left", fill="both", expand=True)
+        result_scroll.config(command=self.result_tree.yview)
+        self.result_tree.bind("<<TreeviewSelect>>", lambda event: self._update_counter())
+        self.result_tree.bind("<Double-1>", lambda event: self._open_selected_result())
+
+        # 4. Control section just above table
+        control_frame = tk.Frame(right_panel, bg=PANEL_BG)
+        control_frame.pack(side="bottom", fill="x", padx=14, pady=(0, 14))
+
+        self._create_btn(control_frame, text="Select All", command=self._select_all, side="left")
+        self._create_btn(control_frame, text="Deselect All", command=self._deselect_all, side="left", padx=(8, 0))
+
+        # 5. Filter section (packed from top, below right_header)
         filter_frame = tk.Frame(right_panel, bg=PANEL_BG)
-        filter_frame.pack(fill="x", padx=14, pady=(0, 8))
+        filter_frame.pack(side="top", fill="x", padx=14, pady=(0, 8))
 
         tk.Label(
             filter_frame,
@@ -225,25 +413,28 @@ class GameLauncherMultiSite(tk.Tk):
             textvariable=self.filter_var,
             bg=TEXT_BG,
             fg=TEXT_FG,
-            insertbackground="#f8fafc",
+            insertbackground="#ffffff",
             relief="flat",
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=BORDER_COLOR,
+            highlightcolor=ACCENT,
             font=("Segoe UI", 10),
         )
         filter_entry.pack(side="left", fill="x", expand=True, padx=(8, 0))
 
-        # Selection counter
         self.counter_label = tk.Label(
             filter_frame,
             text="Selected: 0/0",
-            font=("Segoe UI", 9),
-            fg=ACCENT,
+            font=("Segoe UI", 9, "bold"),
+            fg=ACCENT_PINK,
             bg=PANEL_BG,
         )
         self.counter_label.pack(side="right", padx=(8, 0))
 
-        # Game list with scrollbar
+        # 6. Remaining middle space is list_frame for the Listbox (packed from top with expand=True)
         list_frame = tk.Frame(right_panel, bg=PANEL_BG)
-        list_frame.pack(fill="both", expand=True, padx=14, pady=(0, 14))
+        list_frame.pack(side="top", fill="both", expand=True, padx=14, pady=(0, 8))
 
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
         scrollbar.pack(side="right", fill="y")
@@ -256,109 +447,32 @@ class GameLauncherMultiSite(tk.Tk):
             yscrollcommand=scrollbar.set,
             relief="flat",
             font=("Segoe UI", 10),
-            highlightthickness=0,
+            bd=0,
+            highlightthickness=1,
+            highlightbackground=BORDER_COLOR,
+            highlightcolor=ACCENT,
+            selectbackground=ACCENT,
+            selectforeground="#ffffff",
         )
         self.game_listbox.pack(side="left", fill="both", expand=True)
         scrollbar.config(command=self.game_listbox.yview)
         self.game_listbox.bind("<<ListboxSelect>>", lambda event: self._update_counter())
 
-        # Control section
-        control_frame = tk.Frame(right_panel, bg=PANEL_BG)
-        control_frame.pack(fill="x", padx=14, pady=(0, 14))
-
-        ttk.Button(control_frame, text="Select All", command=self._select_all).pack(side="left")
-        ttk.Button(control_frame, text="Deselect All", command=self._deselect_all).pack(side="left", padx=(8, 0))
-
-        # Resolved host links table
-        result_frame = tk.Frame(right_panel, bg=PANEL_BG)
-        result_frame.pack(fill="both", expand=False, padx=14, pady=(0, 14))
-
-        tk.Label(
-            result_frame,
-            text="Resolved Host Links",
-            font=("Segoe UI", 9, "bold"),
-            fg=TEXT_FG,
-            bg=PANEL_BG,
-        ).pack(anchor="w")
-
-        result_table_frame = tk.Frame(result_frame, bg=PANEL_BG)
-        result_table_frame.pack(fill="both", expand=True, pady=(4, 0))
-
-        result_scroll = ttk.Scrollbar(result_table_frame, orient="vertical")
-        result_scroll.pack(side="right", fill="y")
-
-        self.result_tree = ttk.Treeview(
-            result_table_frame,
-            columns=("game", "site", "host", "link"),
-            show="headings",
-            height=6,
-            yscrollcommand=result_scroll.set,
-        )
-        self.result_tree.heading("game", text="Game")
-        self.result_tree.heading("site", text="Site")
-        self.result_tree.heading("host", text="Host")
-        self.result_tree.heading("link", text="Link")
-        self.result_tree.column("game", width=320, anchor="w")
-        self.result_tree.column("site", width=90, anchor="center")
-        self.result_tree.column("host", width=120, anchor="center")
-        self.result_tree.column("link", width=430, anchor="w")
-        self.result_tree.pack(side="left", fill="both", expand=True)
-        result_scroll.config(command=self.result_tree.yview)
-        self.result_tree.bind("<<TreeviewSelect>>", lambda event: self._update_counter())
-        self.result_tree.bind("<Double-1>", lambda event: self._open_selected_result())
-
-        # Status section
-        status_frame = tk.Frame(right_panel, bg=PANEL_BG)
-        status_frame.pack(fill="x", padx=14, pady=(0, 14))
-
-        tk.Label(
-            status_frame,
-            text="Status:",
-            font=("Segoe UI", 9),
-            fg=TEXT_FG,
-            bg=PANEL_BG,
-        ).pack(anchor="w")
-
-        self.status_text = tk.Text(
-            status_frame,
-            height=6,
-            wrap="word",
-            bg=TEXT_BG,
-            fg=TEXT_FG,
-            relief="flat",
-            font=("Consolas", 9),
-        )
-        self.status_text.pack(fill="both", expand=True, pady=(4, 0))
-
-        # Action buttons
-        button_frame = tk.Frame(right_panel, bg=PANEL_BG)
-        button_frame.pack(fill="x", padx=14, pady=(0, 14))
-
-        ttk.Button(
-            button_frame,
-            text="Start Selected",
-            style="Accent.TButton",
-            command=self._start_selected,
-        ).pack(side="left", fill="x", expand=True)
-
-        ttk.Button(
-            button_frame,
-            text="Run All",
-            style="Accent.TButton",
-            command=self._start_all,
-        ).pack(side="left", fill="x", expand=True, padx=(8, 0))
-
-        ttk.Button(
-            button_frame,
-            text="Open Link",
-            command=self._open_selected_result,
-        ).pack(side="right")
-
-        ttk.Button(
-            button_frame,
-            text="Copy Link",
-            command=self._copy_selected_result,
-        ).pack(side="right", padx=(0, 8))
+    def _close_steamrip_windows(self) -> None:
+        """Close all Brave windows that contain Steamrip tabs"""
+        try:
+            import subprocess
+            cmd = (
+                'powershell -Command "'
+                'Get-Process brave -ErrorAction SilentlyContinue | '
+                'Where-Object { $_.MainWindowTitle -like \'*steamrip*\' } | '
+                'ForEach-Object { $_.CloseMainWindow() }'
+                '"'
+            )
+            subprocess.run(cmd, shell=True)
+            self._log("ℹ Sent close command to Steamrip Brave windows.")
+        except Exception as e:
+            self._log(f"✗ Failed to close Steamrip windows: {str(e)}")
 
     def _normalize_parsed_title(self, title: str) -> str:
         """Parse and normalize game title from list"""
