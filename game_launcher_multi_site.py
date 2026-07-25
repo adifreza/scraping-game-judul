@@ -46,7 +46,7 @@ Total Size: 937.6 GB"""
 class GameLauncherMultiSite(tk.Tk):
     def __init__(self) -> None:
         super().__init__()
-        self.title("Game Launcher - Multi Site")
+        self.title("WD Games")
         self.geometry("1400x780")
         self.minsize(1280, 700)
 
@@ -162,19 +162,19 @@ class GameLauncherMultiSite(tk.Tk):
 
         tk.Label(
             header,
-            text="Game Launcher - Multi Site",
-            font=("Segoe UI", 24, "bold"),
-            fg="#f9fafb",
+            text="WD GAMES",
+            font=("Segoe UI", 28, "bold"),
+            fg=ACCENT,
             bg=APP_BG,
-        ).pack(anchor="w")
+        ).pack(anchor="center")
 
         tk.Label(
             header,
-            text="Paste game list. Tag (PS2) → romsfun.com | No tag → steamrip.com",
-            font=("Segoe UI", 10),
+            text="SCRAPING ALL GAMES",
+            font=("Segoe UI", 10, "bold"),
             fg=MUTED_FG,
             bg=APP_BG,
-        ).pack(anchor="w", pady=(4, 0))
+        ).pack(anchor="center", pady=(4, 0))
 
         body = tk.Frame(self, bg=APP_BG)
         body.pack(fill="both", expand=True, padx=20, pady=10)
@@ -200,16 +200,6 @@ class GameLauncherMultiSite(tk.Tk):
             fg="#ffffff",
             bg=PANEL_BG,
         ).pack(side="left")
-
-        tk.Label(
-            left_header,
-            text="Game dengan (PS2) → romsfun | Tanpa tag → steamrip",
-            font=("Segoe UI", 9),
-            fg=MUTED_FG,
-            bg=PANEL_BG,
-            wraplength=470,
-            justify="left",
-        ).pack(anchor="w", pady=(4, 0))
 
         button_row = tk.Frame(left_header, bg=PANEL_BG)
         button_row.pack(fill="x", pady=(10, 0))
@@ -311,6 +301,31 @@ class GameLauncherMultiSite(tk.Tk):
             command=self._close_steamrip_windows,
             side="right",
             padx=(0, 8),
+        )
+
+        # 1.5 Download buttons (new)
+        download_frame = tk.Frame(right_panel, bg=PANEL_BG)
+        download_frame.pack(side="bottom", fill="x", padx=14, pady=(0, 8))
+
+        self._create_btn(
+            download_frame,
+            text="Open Steamrip BZZHR/GOFILE",
+            command=self._open_all_steamrip_downloads,
+            style_type="accent",
+            side="left",
+            fill="x",
+            expand=True,
+        )
+
+        self._create_btn(
+            download_frame,
+            text="Open Romsfun Download",
+            command=self._open_all_romsfun_downloads,
+            style_type="accent",
+            side="left",
+            fill="x",
+            expand=True,
+            padx=(8, 0),
         )
 
         # 2. Status section just above buttons
@@ -432,31 +447,43 @@ class GameLauncherMultiSite(tk.Tk):
         )
         self.counter_label.pack(side="right", padx=(8, 0))
 
-        # 6. Remaining middle space is list_frame for the Listbox (packed from top with expand=True)
-        list_frame = tk.Frame(right_panel, bg=PANEL_BG)
+        # 6. Remaining middle space is list_frame for the game rows (packed from top with expand=True)
+        list_frame = tk.Frame(
+            right_panel, bg=TEXT_BG, highlightthickness=1,
+            highlightbackground=BORDER_COLOR, bd=0,
+        )
         list_frame.pack(side="top", fill="both", expand=True, padx=14, pady=(0, 8))
 
         scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
         scrollbar.pack(side="right", fill="y")
 
-        self.game_listbox = tk.Listbox(
+        self.game_canvas = tk.Canvas(
             list_frame,
             bg=TEXT_BG,
-            fg=TEXT_FG,
-            selectmode="multiple",
-            yscrollcommand=scrollbar.set,
-            relief="flat",
-            font=("Segoe UI", 10),
+            highlightthickness=0,
             bd=0,
-            highlightthickness=1,
-            highlightbackground=BORDER_COLOR,
-            highlightcolor=ACCENT,
-            selectbackground=ACCENT,
-            selectforeground="#ffffff",
+            yscrollcommand=scrollbar.set,
         )
-        self.game_listbox.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=self.game_listbox.yview)
-        self.game_listbox.bind("<<ListboxSelect>>", lambda event: self._update_counter())
+        self.game_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self.game_canvas.yview)
+
+        self.game_list_inner = tk.Frame(self.game_canvas, bg=TEXT_BG)
+        self._game_list_window = self.game_canvas.create_window(
+            (0, 0), window=self.game_list_inner, anchor="nw"
+        )
+        self.game_list_inner.bind(
+            "<Configure>",
+            lambda event: self.game_canvas.configure(scrollregion=self.game_canvas.bbox("all")),
+        )
+        self.game_canvas.bind(
+            "<Configure>",
+            lambda event: self.game_canvas.itemconfig(self._game_list_window, width=event.width),
+        )
+        self.game_canvas.bind("<MouseWheel>", self._on_game_list_mousewheel)
+        self.game_list_inner.bind("<MouseWheel>", self._on_game_list_mousewheel)
+
+        self._row_widgets: list[dict[str, tk.Widget]] = []
+        self._selected_indices: set[int] = set()
 
     def _close_steamrip_windows(self) -> None:
         """Close all Brave windows that contain Steamrip tabs"""
@@ -517,23 +544,99 @@ class GameLauncherMultiSite(tk.Tk):
     def _apply_filter(self) -> None:
         """Apply search filter to game list"""
         filter_text = self.filter_var.get().lower()
-        self.game_listbox.delete(0, "end")
+
+        for widget in self.game_list_inner.winfo_children():
+            widget.destroy()
+        self._row_widgets = []
+        self._selected_indices = set()
 
         self._filtered_games = [
             (name, site) for name, site in self._parsed_games
             if filter_text in name.lower()
         ]
 
-        for name, site in self._filtered_games:
-            display = f"[{site.upper()}] {name}"
-            self.game_listbox.insert("end", display)
+        chip_style = {
+            "steamrip": {"bg": "#232a4d", "fg": "#a5b4fc"},
+            "romsfun": {"bg": "#3a1930", "fg": "#f9a8d4"},
+        }
+
+        for index, (name, site) in enumerate(self._filtered_games):
+            row = tk.Frame(self.game_list_inner, bg=TEXT_BG)
+            row.pack(fill="x")
+
+            style = chip_style["steamrip" if site == "steamrip" else "romsfun"]
+            tag_label = tk.Label(
+                row,
+                text=site.upper(),
+                font=("Segoe UI", 8, "bold"),
+                bg=style["bg"],
+                fg=style["fg"],
+                padx=6,
+                pady=1,
+            )
+            tag_label.pack(side="left", padx=(10, 8), pady=6)
+
+            name_label = tk.Label(
+                row,
+                text=name,
+                font=("Segoe UI", 10),
+                bg=TEXT_BG,
+                fg=TEXT_FG,
+                anchor="w",
+            )
+            name_label.pack(side="left", fill="x", expand=True, pady=6)
+
+            for widget in (row, tag_label, name_label):
+                widget.bind("<Button-1>", lambda event, i=index: self._toggle_row_selection(i))
+                widget.bind("<Enter>", lambda event, i=index: self._on_row_hover(i, True))
+                widget.bind("<Leave>", lambda event, i=index: self._on_row_hover(i, False))
+                widget.bind("<MouseWheel>", self._on_game_list_mousewheel)
+
+            self._row_widgets.append({
+                "row": row, "tag": tag_label, "name": name_label,
+                "chip_bg": style["bg"], "chip_fg": style["fg"],
+            })
 
         self._update_counter()
 
+    def _refresh_row_visual(self, index: int) -> None:
+        """Repaint a single row based on its selection state"""
+        widgets = self._row_widgets[index]
+        selected = index in self._selected_indices
+        row_bg = ACCENT if selected else TEXT_BG
+        widgets["row"].configure(bg=row_bg)
+        widgets["name"].configure(bg=row_bg, fg="#ffffff" if selected else TEXT_FG)
+        widgets["tag"].configure(
+            bg="#818cf8" if selected else widgets["chip_bg"],
+            fg="#ffffff" if selected else widgets["chip_fg"],
+        )
+
+    def _toggle_row_selection(self, index: int) -> None:
+        """Toggle selection state for one game row"""
+        if index in self._selected_indices:
+            self._selected_indices.discard(index)
+        else:
+            self._selected_indices.add(index)
+        self._refresh_row_visual(index)
+        self._update_counter()
+
+    def _on_row_hover(self, index: int, hovering: bool) -> None:
+        """Lightly highlight a row on mouse hover when not selected"""
+        if index in self._selected_indices:
+            return
+        widgets = self._row_widgets[index]
+        bg = "#151c2c" if hovering else TEXT_BG
+        widgets["row"].configure(bg=bg)
+        widgets["name"].configure(bg=bg)
+
+    def _on_game_list_mousewheel(self, event: tk.Event) -> None:
+        """Scroll the game list with the mouse wheel"""
+        self.game_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
     def _update_counter(self) -> None:
         """Update selection counter"""
-        selected = len(self.game_listbox.curselection())
-        total = self.game_listbox.size()
+        selected = len(self._selected_indices)
+        total = len(self._row_widgets)
         self.counter_label.config(text=f"Selected: {selected}/{total}")
 
     def _clear_results(self) -> None:
@@ -586,14 +689,55 @@ class GameLauncherMultiSite(tk.Tk):
         webbrowser.open_new_tab(link)
         self._log(f"Opened link: {link}")
 
+    def _open_all_steamrip_downloads(self) -> None:
+        """Open all Steamrip BZZHR/GOFILE links in browser"""
+        steamrip_links = [
+            result.get("selected_host_link")
+            for result in self._resolved_rows
+            if result.get("site_type") == "steamrip" and result.get("selected_host_link")
+        ]
+        
+        if not steamrip_links:
+            messagebox.showinfo("No Links", "No Steamrip download links found")
+            return
+        
+        for link in steamrip_links:
+            if link and link != "-":
+                webbrowser.open_new_tab(link)
+        
+        self._log(f"Opened {len(steamrip_links)} Steamrip download links")
+
+    def _open_all_romsfun_downloads(self) -> None:
+        """Open all Romsfun download page links in browser"""
+        romsfun_links = [
+            result.get("selected_host_link")
+            for result in self._resolved_rows
+            if result.get("site_type") == "romsfun" and result.get("selected_host_link")
+        ]
+        
+        if not romsfun_links:
+            messagebox.showinfo("No Links", "No Romsfun download links found")
+            return
+        
+        for link in romsfun_links:
+            if link and link != "-":
+                webbrowser.open_new_tab(link)
+        
+        self._log(f"Opened {len(romsfun_links)} Romsfun download links")
+
     def _select_all(self) -> None:
         """Select all games in filtered list"""
-        self.game_listbox.select_set(0, "end")
+        self._selected_indices = set(range(len(self._row_widgets)))
+        for index in range(len(self._row_widgets)):
+            self._refresh_row_visual(index)
         self._update_counter()
 
     def _deselect_all(self) -> None:
         """Deselect all games"""
-        self.game_listbox.selection_clear(0, "end")
+        previously_selected = self._selected_indices
+        self._selected_indices = set()
+        for index in previously_selected:
+            self._refresh_row_visual(index)
         self._update_counter()
 
     def _log(self, message: str) -> None:
@@ -646,22 +790,20 @@ class GameLauncherMultiSite(tk.Tk):
     def _clear_inputs(self) -> None:
         """Clear all inputs and lists"""
         self.input_text.delete("1.0", "end")
-        self.game_listbox.delete(0, "end")
         self._parsed_games = []
-        self._filtered_games = []
-        self._clear_results()
         self.filter_var.set("")
+        self._apply_filter()
+        self._clear_results()
         self.status_text.delete("1.0", "end")
         self._update_counter()
 
     def _start_selected(self) -> None:
         """Start downloads for selected games"""
-        selected_indices = self.game_listbox.curselection()
-        if not selected_indices:
+        if not self._selected_indices:
             messagebox.showwarning("No Selection", "Please select games to download")
             return
 
-        selected_games = [self._filtered_games[i] for i in selected_indices]
+        selected_games = [self._filtered_games[i] for i in sorted(self._selected_indices)]
         self._start_downloads(selected_games)
 
     def _start_all(self) -> None:

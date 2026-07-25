@@ -392,7 +392,6 @@ def open_game_search_tabs(
     browser = get_browser()
     resolved_results: list[dict[str, str | None]] = []
     steamrip_search_urls: list[str] = []
-
     try:
         for idx, (game_name, site_type) in enumerate(game_list, 1):
             if log_fn:
@@ -428,6 +427,17 @@ def open_game_search_tabs(
                                 if selected_host_link:
                                     if log_fn:
                                         log_fn(f"✓ Resolved Steamrip host: {selected_host_name} -> {selected_host_link}")
+                                    
+                                    # Open in Brave immediately
+                                    if open_in_browser:
+                                        if log_fn:
+                                            log_fn(f"→ Opening in Brave: {selected_host_link}")
+                                        try:
+                                            browser.open(selected_host_link)
+                                            time.sleep(0.5)
+                                        except Exception as e:
+                                            if log_fn:
+                                                log_fn(f"⚠ Failed to open in Brave: {e}")
                                     
                                     result = {
                                         "game_name": game_name,
@@ -468,78 +478,73 @@ def open_game_search_tabs(
                             result_fn(result)
                     continue
 
+                # Romsfun: full fetch and resolve in-app
                 if log_fn:
-                    if open_in_browser:
-                        log_fn(f"→ Opening: {search_url}")
-                    else:
-                        log_fn(f"→ Resolving: {search_url}")
+                    log_fn(f"→ Resolving: {search_url}")
 
-                # Fetch search results (romsfun only)
+                # Fetch search results
                 html = fetch_html(search_url)
-
                 if not html:
                     if log_fn:
                         log_fn(f"✗ Failed to fetch search results for {game_name}")
                     continue
 
-                # Extract links (romsfun only)
+                # Extract links
                 links = extract_ps2_game_links(html)
-
                 if not links:
                     if log_fn:
-                        log_fn(f"✗ No results found for {game_name} on {site_domain}")
+                        log_fn(f"✗ No results found for {game_name} on romsfun.com")
                     continue
 
                 # Find best matching link
                 best_link = pick_best_game_link(game_name, links, site_type)
-
-                if best_link:
+                if not best_link:
                     if log_fn:
-                        log_fn(f"✓ Found: {best_link}")
+                        log_fn(f"⚠ No close match found for {game_name}")
+                    continue
 
-                    selected_host = None
-                    host_name = None
-                    buzzheavier_link = None
-                    gofile_link = None
-                    romsfun_download_page_link = None
-                    romsfun_final_link = None
+                if log_fn:
+                    log_fn(f"✓ Found: {best_link}")
 
-                    # Romsfun only at this point (Steamrip already skipped above with continue)
-                    game_page_html = fetch_html(best_link)
-                    if game_page_html:
-                        landing_link = extract_romsfun_download_landing_link(game_page_html)
-
-                        if not landing_link:
-                            if log_fn:
-                                log_fn("⚠ No romsfun download landing link found on PS2 game page")
-                        else:
-                            landing_html = fetch_html(landing_link)
-                            if landing_html:
-                                romsfun_download_page_link = extract_romsfun_best_download_page_link(landing_html, game_name)
-                                # If table parsing fails, still keep landing page as a fallback.
-                                if not romsfun_download_page_link:
-                                    romsfun_download_page_link = landing_link
-                            else:
+                # Fetch game page
+                game_page_html = fetch_html(best_link)
+                romsfun_download_page_link = None
+                
+                if game_page_html:
+                    landing_link = extract_romsfun_download_landing_link(game_page_html)
+                    
+                    if landing_link:
+                        landing_html = fetch_html(landing_link)
+                        if landing_html:
+                            romsfun_download_page_link = extract_romsfun_best_download_page_link(landing_html, game_name)
+                            if not romsfun_download_page_link:
                                 romsfun_download_page_link = landing_link
+                        else:
+                            romsfun_download_page_link = landing_link
 
-                        if romsfun_download_page_link:
-                            selected_host = romsfun_download_page_link
-                            host_name = "romsfun download"
+                if romsfun_download_page_link:
+                    if log_fn:
+                        log_fn(f"→ Resolved romsfun download page: {romsfun_download_page_link}")
+                    
+                    # Open in Brave immediately
+                    if open_in_browser:
+                        if log_fn:
+                            log_fn(f"→ Opening in Brave: {romsfun_download_page_link}")
+                        try:
+                            browser.open(romsfun_download_page_link)
+                            time.sleep(0.5)
+                        except Exception as e:
                             if log_fn:
-                                log_fn(f"→ Resolved romsfun download page: {selected_host}")
-                        elif log_fn:
-                            log_fn("⚠ No romsfun download page link could be resolved")
-                    elif log_fn:
-                        log_fn("⚠ Failed to fetch romsfun game page for download page extraction")
-
+                                log_fn(f"⚠ Failed to open in Brave: {e}")
+                    
                     result = {
                         "game_name": game_name,
                         "site_type": site_type,
                         "search_url": search_url,
-                        "game_url": best_link if site_type == "romsfun" else None,
-                        "selected_host_name": host_name,
-                        "selected_host_link": selected_host,
-                        "romsfun_download_page_link": romsfun_download_page_link if site_type == "romsfun" else None,
+                        "game_url": best_link,
+                        "selected_host_name": "Romsfun Download",
+                        "selected_host_link": romsfun_download_page_link,
+                        "romsfun_download_page_link": romsfun_download_page_link,
                         "romsfun_final_link": None,
                         "buzzheavier_link": None,
                         "gofile_link": None,
@@ -549,7 +554,7 @@ def open_game_search_tabs(
                         result_fn(result)
                 else:
                     if log_fn:
-                        log_fn(f"⚠ No close match found for {game_name}")
+                        log_fn("⚠ Failed to resolve romsfun download page")
 
             except Exception as e:
                 if log_fn:
@@ -561,7 +566,7 @@ def open_game_search_tabs(
         if log_fn:
             log_fn("All games processed!")
 
-        # Open all Steamrip search tabs together in a new Brave window
+        # Open all Steamrip search tabs in a new Brave window
         if steamrip_search_urls:
             if log_fn:
                 log_fn(f"ℹ Opening {len(steamrip_search_urls)} Steamrip search tabs in a new Brave window...")
