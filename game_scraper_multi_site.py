@@ -3,9 +3,10 @@ import webbrowser
 import re
 import os
 from difflib import SequenceMatcher
+from http.cookiejar import Cookie, CookieJar
 from typing import Callable
-from urllib.parse import quote_plus, urljoin
-from urllib.request import Request, urlopen
+from urllib.parse import quote_plus, urljoin, urlparse
+from urllib.request import Request, build_opener, HTTPCookieProcessor
 
 
 USER_AGENT = (
@@ -16,6 +17,41 @@ USER_AGENT = (
 
 BRAVE_BINARY = r"C:\Program Files\BraveSoftware\Brave-Browser\Application\brave.exe"
 IDM_EXTENSION_HINT = "Make sure IDM Integration Module is enabled in Brave."
+
+# Shared cookie jar so that any cf_clearance / __cf_bm cookie a site sets
+# (or that we import from the user's real Brave profile) is reused across
+# every request in the run instead of starting from a blank session each time.
+_COOKIE_JAR = CookieJar()
+_OPENER = build_opener(HTTPCookieProcessor(_COOKIE_JAR))
+
+_BASE_HEADERS = {
+    "User-Agent": USER_AGENT,
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-US,en;q=0.9,id-ID;q=0.8,id;q=0.7",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+_synced_cookie_domains: set[str] = set()
+
+
+def sync_browser_cookies(domain: str, force: bool = False) -> None:
+    """Import cookies (e.g. a solved cf_clearance) for `domain` from the user's real
+    Brave profile into our request session, so we ride on a challenge the user
+    already passed manually instead of hitting Cloudflare cold every time."""
+    if domain in _synced_cookie_domains and not force:
+        return
+    _synced_cookie_domains.add(domain)
+    try:
+        import browser_cookie3
+        brave_jar = browser_cookie3.brave(domain_name=domain)
+        for cookie in brave_jar:
+            _COOKIE_JAR.set_cookie(cookie)
+    except Exception:
+        pass  # Brave profile locked/unavailable/not installed - fall back to a plain session.
 
 LogFn = Callable[[str], None]
 PauseFn = Callable[[str], None]
@@ -83,10 +119,16 @@ def normalize_name(text: str) -> str:
 
 
 def fetch_html(url: str) -> str | None:
-    """Fetch HTML from URL"""
+    """Fetch HTML from URL, using a persistent cookie session and browser-like headers
+    so a Cloudflare check passed once (in-session or in the user's real Brave profile)
+    is reused instead of triggering a fresh challenge on every call."""
+    domain = urlparse(url).netloc
+    sync_browser_cookies(domain)
     try:
-        req = Request(url, headers={"User-Agent": USER_AGENT})
-        with urlopen(req, timeout=15) as response:
+        headers = dict(_BASE_HEADERS)
+        headers["Referer"] = f"https://{domain}/"
+        req = Request(url, headers=headers)
+        with _OPENER.open(req, timeout=15) as response:
             return response.read().decode("utf-8", errors="ignore")
     except Exception as error:
         print(f"Failed fetching {url}: {error}")
@@ -94,59 +136,109 @@ def fetch_html(url: str) -> str | None:
 
 
 def looks_like_human_verification(html: str | None) -> bool:
-    """Detect common Steamrip human-verification or anti-bot pages."""
+    """Detect an actual Cloudflare interstitial/challenge page. Cloudflare injects
+    lightweight background-check scripts (an analytics beacon, a
+    "challenge-platform" script tag) into ordinary, successfully-loaded pages too,
+    so a loose "cloudflare" substring check flags real pages as blocked. Only the
+    literal interstitial title/body text - which renders on the block/challenge
+    page itself - counts as a match."""
     if not html:
         return True
 
     text = html.lower()
-    return any(
-        phrase in text
-        for phrase in (
-            "just a moment",
-            "verify you are human",
-            "checking your browser",
-            "attention required",
-            "cloudflare",
-            "human verification",
-        )
+    return (
+        "<title>just a moment...</title>" in text
+        or "verifying you are human. this may take a few seconds" in text
+        or "needs to review the security of your connection before proceeding" in text
+        or "enable javascript and cookies to continue" in text
+        or "please stand by, while we are checking your browser" in text
+        or 'id="challenge-error-text"' in text
     )
 
 
-def fetch_steamrip_html_with_verification(
-    url: str,
-    game_name: str,
-    stage: str,
-    browser: webbrowser.BaseBrowser | None,
-    log_fn: LogFn | None = None,
-    pause_fn: PauseFn | None = None,
-) -> str | None:
-    """Fetch Steamrip HTML and pause in Brave if a human-verification page appears."""
+_playwright_available: bool | None = None
 
+
+def _playwright_cookie_to_http(cookie: dict) -> Cookie:
+    """Convert a Playwright cookie dict into an http.cookiejar.Cookie our urllib
+    session can store, so a challenge solved in the headless Brave carries over
+    to plain requests for the rest of the run."""
+    domain = cookie["domain"]
+    expires = cookie.get("expires")
+    return Cookie(
+        version=0,
+        name=cookie["name"],
+        value=cookie["value"],
+        port=None,
+        port_specified=False,
+        domain=domain,
+        domain_specified=True,
+        domain_initial_dot=domain.startswith("."),
+        path=cookie.get("path", "/"),
+        path_specified=True,
+        secure=cookie.get("secure", False),
+        expires=expires if expires and expires > 0 else None,
+        discard=False,
+        comment=None,
+        comment_url=None,
+        rest={},
+    )
+
+
+def fetch_html_via_brave(url: str, wait_ms: int = 7000, timeout_ms: int = 30000) -> str | None:
+    """Load a page in a real (headless) Brave instance so a Cloudflare JS challenge
+    resolves the same way it would when the user opens the page themselves, then
+    hand the solved HTML - and any cf_clearance cookie it earns - back to the
+    caller. Needs `pip install playwright`; drives the existing Brave install
+    directly so no separate browser download is required. Silently unavailable
+    if either is missing, so plain-request scraping keeps working without it."""
+    global _playwright_available
+    if _playwright_available is False or not os.path.exists(BRAVE_BINARY):
+        return None
+
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        _playwright_available = False
+        return None
+
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(executable_path=BRAVE_BINARY, headless=True)
+            try:
+                context = browser.new_context(user_agent=USER_AGENT)
+                page = context.new_page()
+                page.goto(url, timeout=timeout_ms, wait_until="domcontentloaded")
+                # Give Cloudflare's JS challenge time to auto-resolve and redirect.
+                page.wait_for_timeout(wait_ms)
+                html = page.content()
+                for cookie in context.cookies():
+                    try:
+                        _COOKIE_JAR.set_cookie(_playwright_cookie_to_http(cookie))
+                    except Exception:
+                        pass
+                return html
+            finally:
+                browser.close()
+    except Exception as error:
+        print(f"Brave headless fetch failed for {url}: {error}")
+        return None
+
+
+def resolve_steamrip_html(url: str, log_fn: LogFn | None = None) -> str | None:
+    """Fetch a Steamrip page, falling back to a real headless Brave load when the
+    plain request hits a Cloudflare challenge, so the JS check gets solved the
+    same way a human's browser would solve it - without needing a manual click."""
     html = fetch_html(url)
     if not looks_like_human_verification(html):
         return html
 
     if log_fn:
-        log_fn(f"⚠ Steamrip human verification detected at {stage}: {url}")
+        log_fn(f"⚠ Cloudflare challenge at {url} - retrying with a real Brave session...")
 
-    try:
-        browser.open(url)
-    except Exception:
-        pass
-
-    if pause_fn:
-        pause_fn(
-            f"Steamrip human verification for {game_name} ({stage}).\n\n"
-            f"Complete the check in Brave, then click OK to continue.\n"
-            f"If the page still shows verification after OK, Steamrip is blocking automation and the item will be skipped."
-        )
-
-    html = fetch_html(url)
+    html = fetch_html_via_brave(url)
     if looks_like_human_verification(html):
-        if log_fn:
-            log_fn(f"⚠ Steamrip still blocked after manual verification at {stage}; skipping {game_name}")
         return None
-
     return html
 
 
@@ -409,15 +501,15 @@ def open_game_search_tabs(
                 # Steamrip: Try to resolve in-app, fall back to Brave search tab if Cloudflare blocks it
                 if site_type == "steamrip":
                     resolved = False
-                    search_html = fetch_html(search_url)
-                    
-                    if search_html and not looks_like_human_verification(search_html):
+                    search_html = resolve_steamrip_html(search_url, log_fn)
+
+                    if search_html:
                         steamrip_links = extract_steamrip_game_links(search_html)
                         best_steamrip_link = pick_best_game_link(game_name, steamrip_links, "steamrip")
-                        
+
                         if best_steamrip_link:
-                            game_page_html = fetch_html(best_steamrip_link)
-                            if game_page_html and not looks_like_human_verification(game_page_html):
+                            game_page_html = resolve_steamrip_html(best_steamrip_link, log_fn)
+                            if game_page_html:
                                 buzz_link, go_link = extract_steamrip_priority_host_links(game_page_html)
                                 
                                 # Select priority host
