@@ -347,54 +347,52 @@ def extract_steamrip_game_links(html: str) -> list[str]:
     return unique_links[:10]  # Return top 10 results
 
 
-def extract_steamrip_priority_host_links(html: str) -> tuple[str | None, str | None]:
-    """
-    Extract Steamrip download links from game page with priority: Buzzheavier first, then Gofile.
-    
-    HTML Structure on game page:
-    <p>
-      <strong>Buzzheavier</strong><br>
-      <a href="//bzzhr.to/..." class="shortc-button medium purple">DOWNLOAD HERE</a>
-    </p>
-    
-    <p>
-      <span style="color: #ff9900;"><strong>GOFILE</strong></span><br>
-      <a href="//www.filecrypt.cc/..." class="shortc-button medium purple">DOWNLOAD HERE</a>
-    </p>
-    
-    Returns: (buzzheavier_link, gofile_link)
-    """
-    buzzheavier_link = None
-    gofile_link = None
-
-    def _normalize_protocol_relative(link: str) -> str:
-        return link if link.startswith("http") else "https:" + link
-    
-    # Pattern 1: Find Buzzheavier link first, even if the label is wrapped or spaced differently.
-    # Steamrip sometimes renders this as plain <strong>Buzzheavier</strong> and sometimes with extra markup around it.
-    buzzheavier_pattern = r'Buzzheavier.*?<a\s+href="([^"]+)"'
-    buzzheavier_matches = re.findall(buzzheavier_pattern, html, re.IGNORECASE | re.DOTALL)
-    if buzzheavier_matches:
-        link = buzzheavier_matches[0]
-        buzzheavier_link = _normalize_protocol_relative(link)
-    
-    # Pattern 2: Find Gofile link (may be wrapped in <span>, look for "GOFILE" followed by href)
-    # Handles both: <strong>GOFILE</strong> and <span>...<strong>GOFILE</strong></span>
-    gofile_pattern = r'<strong>(?:GOFILE|GoFile|Gofile)</strong>.*?<a\s+href="([^"]+)"'
-    gofile_matches = re.findall(gofile_pattern, html, re.IGNORECASE | re.DOTALL)
-    if gofile_matches:
-        link = gofile_matches[0]
-        gofile_link = _normalize_protocol_relative(link)
-    
-    return (buzzheavier_link, gofile_link)
+_ROMAN_NUMERAL_VALUES = {
+    "i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5,
+    "vi": 6, "vii": 7, "viii": 8, "ix": 9, "x": 10,
+}
 
 
-def pick_best_game_link(game_name: str, links: list[str], site_type: str = "romsfun") -> str | None:
-    """Pick best matching game link"""
+def _extract_sequel_number(text: str) -> int | None:
+    """Extract a standalone sequel/edition number (Arabic or Roman numeral)
+    from a game title, e.g. 2 from "Spider-Man 2" or 4 from "Diablo IV".
+    Used so text-similarity matching can't confuse a numbered sequel with a
+    different entry in the same series just because most of the title is
+    otherwise identical - "Spider-Man 2" and "Spider-Man 3" score high on
+    plain fuzzy similarity but are very much not the same game."""
+    for word in normalize_name(text).split():
+        if word.isdigit():
+            return int(word)
+        if word in _ROMAN_NUMERAL_VALUES:
+            return _ROMAN_NUMERAL_VALUES[word]
+    return None
+
+
+def pick_best_game_link(game_name: str, links: list[str], site_type: str = "romsfun") -> tuple[str | None, bool]:
+    """Pick the best matching game link. Returns (link, confident).
+
+    `confident` is False when the match shouldn't be trusted enough to open
+    automatically - either the text similarity is only middling, or (more
+    important) the target title has a sequel/edition number that doesn't
+    match the candidate's (e.g. never let "Spider-Man 2" resolve to a
+    "Spider-Man" or "Spider-Man: Miles Morales" page just because the rest of
+    the title text lines up). Callers should send the user to the search
+    results to pick manually rather than opening an unconfident match."""
     if not links:
-        return None
+        return None, False
 
-    target = normalize_name(game_name)
+    # Every Steamrip slug ends in boilerplate like "-free-download" - strip
+    # it before scoring so it doesn't dilute the similarity ratio and make a
+    # genuinely correct match look "unconfident".
+    noise_words = {"free", "download"}
+
+    def _scoring_text(text: str) -> str:
+        words = [w for w in normalize_name(text).split() if w not in noise_words]
+        return " ".join(words)
+
+    target = _scoring_text(game_name)
+    target_number = _extract_sequel_number(game_name)
+
     best_link = None
     best_score = 0.0
 
@@ -403,17 +401,25 @@ def pick_best_game_link(game_name: str, links: list[str], site_type: str = "roms
             slug = link.rsplit("/", 1)[-1].replace(".html", "")
         else:  # steamrip - remove trailing slash first before extracting last path component
             slug = link.rstrip("/").split("/")[-1].replace("-", " ")
-        
-        score = SequenceMatcher(None, target, normalize_name(slug)).ratio()
+
+        if _extract_sequel_number(slug) != target_number:
+            continue
+
+        score = SequenceMatcher(None, target, _scoring_text(slug)).ratio()
         if score > best_score:
             best_score = score
             best_link = link
 
+    if best_link is None:
+        return None, False
+
     # Lower threshold for steamrip since titles can be more varied
     min_threshold = 0.35 if site_type == "steamrip" else 0.45
     if best_score < min_threshold:
-        return None
-    return best_link
+        return None, False
+
+    confident_threshold = 0.6 if site_type == "steamrip" else 0.65
+    return best_link, best_score >= confident_threshold
 
 
 def score_download_file_romsfun(text: str, href: str) -> int:
@@ -442,23 +448,6 @@ def score_download_file_romsfun(text: str, href: str) -> int:
         score += 200
     elif any(word in text_lower for word in ["asia", "hong kong"]):
         score += 100
-    
-    return score
-
-
-def score_download_file_steamrip(text: str, href: str) -> int:
-    """Score download files for PC/console games (steamrip.com)"""
-    text_lower = text.lower()
-    
-    # Check for unwanted variants
-    if any(word in text_lower for word in ["demo", "trial", "preview", "test"]):
-        return -10000
-    
-    score = 100  # Base score for valid files
-    
-    # Prefer non-Japanese language releases
-    if "japanese" in text_lower or "jap" in text_lower:
-        score -= 50
     
     return score
 
@@ -505,65 +494,56 @@ def open_game_search_tabs(
 
                     if search_html:
                         steamrip_links = extract_steamrip_game_links(search_html)
-                        best_steamrip_link = pick_best_game_link(game_name, steamrip_links, "steamrip")
+                        best_steamrip_link, confident = pick_best_game_link(game_name, steamrip_links, "steamrip")
 
-                        if best_steamrip_link:
-                            game_page_html = resolve_steamrip_html(best_steamrip_link, log_fn)
-                            if game_page_html:
-                                buzz_link, go_link = extract_steamrip_priority_host_links(game_page_html)
-                                
-                                # Select priority host
-                                selected_host_link = buzz_link if buzz_link else go_link
-                                selected_host_name = "Buzzheavier" if buzz_link else ("Gofile" if go_link else None)
-                                
-                                if selected_host_link:
+                        if best_steamrip_link and confident:
+                            if log_fn:
+                                log_fn(f"✓ Found: {best_steamrip_link}")
+
+                            if open_in_browser:
+                                if log_fn:
+                                    log_fn(f"→ Opening in Brave: {best_steamrip_link}")
+                                try:
+                                    browser.open(best_steamrip_link)
+                                    time.sleep(0.5)
+                                except Exception as e:
                                     if log_fn:
-                                        log_fn(f"✓ Resolved Steamrip host: {selected_host_name} -> {selected_host_link}")
-                                    
-                                    # Open in Brave immediately
-                                    if open_in_browser:
-                                        if log_fn:
-                                            log_fn(f"→ Opening in Brave: {selected_host_link}")
-                                        try:
-                                            browser.open(selected_host_link)
-                                            time.sleep(0.5)
-                                        except Exception as e:
-                                            if log_fn:
-                                                log_fn(f"⚠ Failed to open in Brave: {e}")
-                                    
-                                    result = {
-                                        "game_name": game_name,
-                                        "site_type": site_type,
-                                        "search_url": search_url,
-                                        "game_url": best_steamrip_link,
-                                        "selected_host_name": selected_host_name,
-                                        "selected_host_link": selected_host_link,
-                                        "romsfun_download_page_link": None,
-                                        "romsfun_final_link": None,
-                                        "buzzheavier_link": buzz_link,
-                                        "gofile_link": go_link,
-                                    }
-                                    resolved_results.append(result)
-                                    if result_fn:
-                                        result_fn(result)
-                                    resolved = True
-                    
+                                        log_fn(f"⚠ Failed to open in Brave: {e}")
+
+                            result = {
+                                "game_name": game_name,
+                                "site_type": site_type,
+                                "search_url": search_url,
+                                "game_url": best_steamrip_link,
+                                "selected_host_name": "Steamrip Page",
+                                "selected_host_link": best_steamrip_link,
+                                "romsfun_download_page_link": None,
+                                "romsfun_final_link": None,
+                            }
+                            resolved_results.append(result)
+                            if result_fn:
+                                result_fn(result)
+                            resolved = True
+                        elif best_steamrip_link and log_fn:
+                            log_fn(
+                                f"⚠ Match for '{game_name}' isn't confident enough "
+                                f"(closest: {best_steamrip_link}) - opening search results to pick manually."
+                            )
+
                     if not resolved:
                         steamrip_search_urls.append(search_url)
                         if log_fn:
-                            log_fn(f"ℹ Steamrip queued (Cloudflare active or no match): {search_url}")
-                        
+                            log_fn(f"ℹ Steamrip: opening search results for '{game_name}' - pick manually.")
+
                         result = {
                             "game_name": game_name,
                             "site_type": site_type,
                             "search_url": search_url,
                             "game_url": None,
-                            "selected_host_name": "Steamrip Search",
+                            "selected_host_name": "Steamrip Search (Manual)",
                             "selected_host_link": search_url,
                             "romsfun_download_page_link": None,
                             "romsfun_final_link": None,
-                            "buzzheavier_link": None,
-                            "gofile_link": None,
                         }
                         resolved_results.append(result)
                         if result_fn:
@@ -589,7 +569,7 @@ def open_game_search_tabs(
                     continue
 
                 # Find best matching link
-                best_link = pick_best_game_link(game_name, links, site_type)
+                best_link, _confident = pick_best_game_link(game_name, links, site_type)
                 if not best_link:
                     if log_fn:
                         log_fn(f"⚠ No close match found for {game_name}")
@@ -659,7 +639,7 @@ def open_game_search_tabs(
             log_fn("All games processed!")
 
         # Open all Steamrip search tabs in a new Brave window
-        if steamrip_search_urls:
+        if open_in_browser and steamrip_search_urls:
             if log_fn:
                 log_fn(f"ℹ Opening {len(steamrip_search_urls)} Steamrip search tabs in a new Brave window...")
             try:

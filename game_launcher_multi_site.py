@@ -976,62 +976,73 @@ class GameLauncherMultiSite(tk.Tk):
         if not link or link == "-":
             return
 
-        webbrowser.open_new_tab(link)
-        self._log(f"Opened link: {link}")
+        result = next((r for r in self._resolved_rows if r.get("selected_host_link") == link), None)
+        self._open_link(result)
+        self._log(f"Opened: {link}")
 
-    def _gather_resolved_links(self, site_type: str) -> list[str]:
-        """Resolved host links for one site type ('steamrip' or 'romsfun')."""
+    def _open_link(self, result: dict | None) -> None:
+        """Open one resolved result's link in the browser. For a confident
+        Steamrip title match this is the real game page (opened directly, no
+        automation needed since it's steamrip.com's own domain); for an
+        unconfident match it's the search results page instead, so the user
+        picks the right title/version themselves; Romsfun opens its resolved
+        download page the same way."""
+        if not result:
+            return
+        url = result.get("selected_host_link")
+        if url and url != "-":
+            webbrowser.open_new_tab(url)
+
+    def _gather_resolved_results(self, site_type: str) -> list[dict]:
+        """Resolved result rows for one site type ('steamrip' or 'romsfun')."""
         return [
-            link
-            for result in self._resolved_rows
-            if result.get("site_type") == site_type
-            and (link := result.get("selected_host_link"))
-            and link != "-"
+            r for r in self._resolved_rows
+            if r.get("site_type") == site_type and r.get("selected_host_link") and r.get("selected_host_link") != "-"
         ]
 
     def _open_all_steamrip_downloads(self) -> None:
-        """Open all Steamrip BZZHR/GOFILE links in browser"""
-        steamrip_links = self._gather_resolved_links("steamrip")
+        """Open all resolved Steamrip game page links in browser"""
+        steamrip_results = self._gather_resolved_results("steamrip")
 
-        if not steamrip_links:
+        if not steamrip_results:
             messagebox.showinfo("No Links", "No Steamrip download links found")
             return
 
-        for link in steamrip_links:
-            webbrowser.open_new_tab(link)
+        for result in steamrip_results:
+            self._open_link(result)
 
-        self._log(f"Opened {len(steamrip_links)} Steamrip download links")
+        self._log(f"Opened {len(steamrip_results)} Steamrip download links")
 
     def _open_all_romsfun_downloads(self) -> None:
         """Open all Romsfun download page links in browser"""
-        romsfun_links = self._gather_resolved_links("romsfun")
+        romsfun_results = self._gather_resolved_results("romsfun")
 
-        if not romsfun_links:
+        if not romsfun_results:
             messagebox.showinfo("No Links", "No Romsfun download links found")
             return
 
-        for link in romsfun_links:
-            webbrowser.open_new_tab(link)
+        for result in romsfun_results:
+            self._open_link(result)
 
-        self._log(f"Opened {len(romsfun_links)} Romsfun download links")
+        self._log(f"Opened {len(romsfun_results)} Romsfun download links")
 
     def _auto_open_all_resolved_downloads(self) -> None:
-        """Open every resolved Steamrip (BZZHR/GOFILE) AND Romsfun (PS2) link
-        together in the browser, right after a scraping run finishes - so PS2
-        titles open automatically just like Steamrip ones do, instead of
-        needing the two toolbar buttons clicked separately by hand."""
-        steamrip_links = self._gather_resolved_links("steamrip")
-        romsfun_links = self._gather_resolved_links("romsfun")
+        """Open every resolved Steamrip AND Romsfun (PS2) result together in
+        the browser, right after a scraping run finishes - so PS2 titles open
+        automatically just like Steamrip ones do, instead of needing the two
+        toolbar buttons clicked separately by hand."""
+        steamrip_results = self._gather_resolved_results("steamrip")
+        romsfun_results = self._gather_resolved_results("romsfun")
 
-        if not steamrip_links and not romsfun_links:
+        if not steamrip_results and not romsfun_results:
             self._log("ℹ No resolved download links to open yet.")
             return
 
-        for link in steamrip_links + romsfun_links:
-            webbrowser.open_new_tab(link)
+        for result in steamrip_results + romsfun_results:
+            self._open_link(result)
 
         self._log(
-            f"🌐 Auto-opened {len(steamrip_links)} Steamrip + {len(romsfun_links)} Romsfun link(s)."
+            f"🌐 Auto-opened {len(steamrip_results)} Steamrip + {len(romsfun_results)} Romsfun link(s)."
         )
 
     def _select_all(self) -> None:
