@@ -548,15 +548,21 @@ class GameLauncherMultiSite(tk.Tk):
             self._log(f"✗ Failed to close Steamrip windows: {str(e)}")
 
     def _normalize_parsed_title(self, title: str) -> str:
-        """Parse and normalize game title from list"""
+        """Parse and normalize game title from list.
+
+        A ' PS3' suffix is kept on PS3 titles so the romsfun scraper can pick
+        the playstation-3 category; normalize_name() strips it back out for
+        folder matching. PS2 titles stay untagged (the scraper's default)."""
+        is_ps3 = "(PS3)" in title
         title = re.sub(r"^\d+\.\s+", "", title)
-        title = re.sub(r"\s*\(PS2\)\s*", "", title)
+        title = re.sub(r"\s*\(PS[23]\)\s*", "", title)
         for dash in ("-", "–", "—"):
             title = title.replace(dash, " ")
         for apostrophe in ("'", "'"):
             title = title.replace(apostrophe, "")
         title = re.sub(r"\s+", " ", title)
-        return title.strip()
+        title = title.strip()
+        return f"{title} PS3" if is_ps3 and title else title
 
     def _parse_game_text(self) -> list[tuple[str, str]]:
         """Parse game text and determine site type based on tags"""
@@ -572,10 +578,10 @@ class GameLauncherMultiSite(tk.Tk):
             if not line or not re.match(r"^\d+\.", line):
                 continue
 
-            is_ps2 = "(PS2)" in line
+            is_romsfun = "(PS2)" in line or "(PS3)" in line
             title = self._normalize_parsed_title(line)
             if title:
-                site_type = "romsfun" if is_ps2 else "steamrip"
+                site_type = "romsfun" if is_romsfun else "steamrip"
                 games.append((title, site_type))
 
         return games

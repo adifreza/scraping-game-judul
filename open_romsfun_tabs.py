@@ -72,6 +72,16 @@ IDM_EXTENSION_HINT = "Make sure IDM Integration Module is enabled in Brave."
 LogFn = Callable[[str], None]
 PauseFn = Callable[[str], None]
 
+# platform tag -> (search-page slug, game-page link slug)
+PLATFORM_SLUGS = {
+    "ps2": ("playstation-2", "playstation-2"),
+    "ps3": ("ps3", "playstation-3"),
+}
+
+
+def detect_platform(game_name: str) -> str:
+    return "ps3" if re.search(r"\bps3\b", game_name, flags=re.IGNORECASE) else "ps2"
+
 
 def sanitize_title_for_search(text: str) -> str:
     sanitized = text
@@ -93,17 +103,18 @@ def get_browser() -> webbrowser.BaseBrowser:
 
 
 def to_search_url(game_name: str) -> str:
-    clean_name = re.sub(r"\bps2\b", "", game_name, flags=re.IGNORECASE)
+    search_slug = PLATFORM_SLUGS[detect_platform(game_name)][0]
+    clean_name = re.sub(r"\bps[23]\b", "", game_name, flags=re.IGNORECASE)
     clean_name = sanitize_title_for_search(clean_name)
     clean_name = " ".join(clean_name.split())
     query = quote_plus(clean_name)
-    return f"https://romsfun.com/roms/playstation-2/?s={query}"
+    return f"https://romsfun.com/roms/{search_slug}/?s={query}"
 
 
 def normalize_name(text: str) -> str:
-    no_ps2 = re.sub(r"\bps2\b", "", text, flags=re.IGNORECASE)
-    no_ps2 = sanitize_title_for_search(no_ps2)
-    alnum_only = re.sub(r"[^a-z0-9 ]+", " ", no_ps2.lower())
+    no_ps = re.sub(r"\bps[23]\b", "", text, flags=re.IGNORECASE)
+    no_ps = sanitize_title_for_search(no_ps)
+    alnum_only = re.sub(r"[^a-z0-9 ]+", " ", no_ps.lower())
     return " ".join(alnum_only.split())
 
 
@@ -117,8 +128,8 @@ def fetch_html(url: str) -> str | None:
         return None
 
 
-def extract_ps2_game_links(html: str) -> list[str]:
-    links = re.findall(r'href="([^"]+/roms/playstation-2/[^"]+\.html)"', html, flags=re.IGNORECASE)
+def extract_ps2_game_links(html: str, link_slug: str = "playstation-2") -> list[str]:
+    links = re.findall(rf'href="([^"]+/roms/{re.escape(link_slug)}/[^"]+\.html)"', html, flags=re.IGNORECASE)
     unique_links: list[str] = []
     seen: set[str] = set()
     for link in links:
@@ -242,6 +253,7 @@ def open_game_search_tabs(
 
     for game in game_list:
         search_url = to_search_url(game)
+        link_slug = PLATFORM_SLUGS[detect_platform(game)][1]
         log(f"Opening: {game}")
 
         search_html = fetch_html(search_url)
@@ -251,7 +263,7 @@ def open_game_search_tabs(
             time.sleep(2)
             continue
 
-        game_links = extract_ps2_game_links(search_html)
+        game_links = extract_ps2_game_links(search_html, link_slug)
         best_game_link = pick_best_game_link(game, game_links)
 
         if not best_game_link:

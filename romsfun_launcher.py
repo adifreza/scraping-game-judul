@@ -15,56 +15,10 @@ MUTED_FG = "#cbd5e1"
 
 SAMPLE_TEXT = """Daftar Game Pesanan
 
-1. Ghost Rider (PS2)
-2. FIFA Street 2 (PS2)
-3. Guitar Hero II (PS2)
-4. Need for Speed - Most Wanted (and Black Edition) (PS2)
-5. PES 6 Absolute Patch 2006 (PS2)
-6. PES 2013: Pro Evolution Soccer (PS2)
-7. Grand Theft Auto San Andreas Remastered (PS2)
-8. Grand Theft Auto San Andreas Upin & Ipin (PS2)
-9. GTA San Andreas Opera Van Java (PS2)
-10. Burnout 3 - Takedown (PS2)
-11. WRC - World Rally Championship (PS2)
-12. Call of Duty 3 (PS2)
-13. Captain Tsubasa (PS2)
-14. Conflict: Desert Storm II - Back to Baghdad (PS2)
-15. Conflict: Global Terror (PS2)
-16. Freedom Fighters (PS2)
-17. FIFA 14: Legacy Edition (PS2)
-18. Grand Theft Auto: Vice City (PS2)
-19. Gran Turismo 4 Spec II (PS2)
-20. NBA Street V3 (PS2)
-21. MotoGP 3 (PS2)
-22. MotoGP 4 (PS2)
-23. Motocross Mania 3 (PS2)
-24. Tenchu: Wrath of Heaven (PS2)
-25. Shadow of the Colossus (PS2)
-26. Tony Hawk's Underground (PS2)
-27. Okami (PS2)
-28. Marvel - Ultimate Alliance 2 (PS2)
-29. Twisted Metal - Black (PS2)
-30. Crash Nitro Kart (PS2)
-31. Devil May Cry 3: Dante's Awakening (PS2)
-32. eFootball 2026 (PS2)
-33. SBK-09 Superbike World Championship (PS2)
-34. Yakuza 2 (PS2)
-35. Need for Speed - Hot Pursuit 2 (PS2)
-36. Super Bomba Patch 2026 (PS2)
-37. Jet Li: Rise to Honor (PS2)
-38. Red Dead Revolver (PS2)
-39. Grand Theft Auto V Legacy (PS2)
-40. Spider-Man 3 (PS2)
-41. Dynasty Warriors 6 (PS2)
-42. The Lord of the Rings: The Return of the King (PS2)
-43. Disney-Pixar Cars (PS2)
-44. Auto Modellista (PS2)
-45. Sonic Unleashed (PS2)
-46. Ben 10 - Alien Force - Vilgax Attacks (PS2)
-47. Jak 3 (PS2)
-48. Formula One 06 (PS2)
+1. The Last of Us (PS3)
+2. God of War III (PS3)
 
-Total Size: 114.5 GB"""
+Total Size: 80.1 GB"""
 
 
 class RomsFunLauncher(tk.Tk):
@@ -127,7 +81,7 @@ class RomsFunLauncher(tk.Tk):
 
         tk.Label(
             header,
-            text="RomsFun PS2 Launcher",
+            text="RomsFun PS2/PS3 Launcher",
             font=("Segoe UI", 24, "bold"),
             fg="#f9fafb",
             bg=APP_BG,
@@ -135,7 +89,7 @@ class RomsFunLauncher(tk.Tk):
 
         tk.Label(
             header,
-            text="Paste teks daftar game. Program hanya mengambil judul yang memiliki tag PS2, lalu jalankan antrian dari hasil itu.",
+            text="Paste teks daftar game. Program hanya mengambil judul yang memiliki tag PS2 atau PS3, lalu jalankan antrian dari hasil itu.",
             font=("Segoe UI", 10),
             fg=MUTED_FG,
             bg=APP_BG,
@@ -162,7 +116,7 @@ class RomsFunLauncher(tk.Tk):
 
         tk.Label(
             left_header,
-            text="Tempel teks dari foto atau daftar yang kamu copy. Hanya baris yang ada tulisan PS2 yang akan diproses.",
+            text="Tempel teks dari foto atau daftar yang kamu copy. Hanya baris yang ada tulisan PS2 atau PS3 yang akan diproses.",
             font=("Segoe UI", 9),
             fg=MUTED_FG,
             bg=PANEL_BG,
@@ -203,7 +157,7 @@ class RomsFunLauncher(tk.Tk):
         parse_summary.pack(fill="x", padx=14, pady=(10, 0))
 
         self.parse_var = tk.StringVar(value="Parsed 0 game title(s)")
-        self.preview_var = tk.StringVar(value="Preview: 0 PS2 title(s) ready")
+        self.preview_var = tk.StringVar(value="Preview: 0 PS2/PS3 title(s) ready")
         self.selected_var = tk.StringVar(value="Selected: 0")
         tk.Label(
             parse_summary,
@@ -314,7 +268,7 @@ class RomsFunLauncher(tk.Tk):
         action_row = tk.Frame(control_card, bg=PANEL_BG)
         action_row.pack(fill="x", padx=14, pady=(0, 14))
 
-        self.run_all_button = ttk.Button(action_row, text="Run All PS2", style="Accent.TButton", command=self._start_all)
+        self.run_all_button = ttk.Button(action_row, text="Run All", style="Accent.TButton", command=self._start_all)
         self.run_all_button.pack(side="left")
 
         self.pause_button = ttk.Button(
@@ -367,19 +321,20 @@ class RomsFunLauncher(tk.Tk):
     def _normalize_parsed_title(self, title: str) -> str:
         cleaned = title.strip()
         cleaned = re.sub(r"^\d+\.\s*", "", cleaned)
-        cleaned = re.sub(r"\s*\(PS2\)\s*$", "", cleaned, flags=re.IGNORECASE)
+        platform = "PS3" if re.search(r"\bPS3\b", cleaned, flags=re.IGNORECASE) else "PS2"
+        cleaned = re.sub(r"\s*\(PS[23]\)\s*$", "", cleaned, flags=re.IGNORECASE)
         for dash in ("-", "–", "—"):
             cleaned = cleaned.replace(dash, " ")
         for apostrophe in ("'", "’"):
             cleaned = cleaned.replace(apostrophe, "")
         cleaned = re.sub(r"\s+", " ", cleaned)
-        return cleaned.strip(" -:|\t")
+        return f"{cleaned.strip(' -:|\t')} {platform}"
 
     def _finalize_candidate(self, candidate_parts: list[str]) -> str | None:
         combined = " ".join(candidate_parts).strip()
         if not combined:
             return None
-        if not re.search(r"\bPS2\b", combined, flags=re.IGNORECASE):
+        if not re.search(r"\bPS[23]\b", combined, flags=re.IGNORECASE):
             return None
         return self._normalize_parsed_title(combined)
 
@@ -427,7 +382,7 @@ class RomsFunLauncher(tk.Tk):
         return deduped
 
     def _update_preview(self, parsed_games: list[str]) -> None:
-        self.preview_var.set(f"Preview: {len(parsed_games)} PS2 title(s) ready")
+        self.preview_var.set(f"Preview: {len(parsed_games)} PS2/PS3 title(s) ready")
         self.selected_var.set(f"Selected: {len(self._get_selected_games())}")
 
     def _refresh_parsed_list(self, parsed_games: list[str]) -> None:
@@ -467,14 +422,14 @@ class RomsFunLauncher(tk.Tk):
         except tk.TclError:
             clipboard_text = ""
 
-        if clipboard_text and re.search(r"\bPS2\b", clipboard_text, flags=re.IGNORECASE):
+        if clipboard_text and re.search(r"\bPS[23]\b", clipboard_text, flags=re.IGNORECASE):
             self.input_text.delete("1.0", tk.END)
             self.input_text.insert("1.0", clipboard_text)
             self._parse_text()
-            self._append_log("Loaded PS2 text from clipboard.")
+            self._append_log("Loaded PS2/PS3 text from clipboard.")
         else:
             self._load_sample()
-            self._append_log("Clipboard empty or not PS2 text. Loaded sample list.")
+            self._append_log("Clipboard empty or not PS2/PS3 text. Loaded sample list.")
 
     def _quick_start_from_clipboard(self) -> None:
         self._load_initial_text()
@@ -503,7 +458,7 @@ class RomsFunLauncher(tk.Tk):
         self._filtered_games = []
         self.filter_var.set("")
         self.parse_var.set("Parsed 0 game title(s)")
-        self.preview_var.set("Preview: 0 PS2 title(s) ready")
+        self.preview_var.set("Preview: 0 PS2/PS3 title(s) ready")
         self.selected_var.set("Selected: 0")
 
     def _parse_text(self) -> None:

@@ -93,13 +93,25 @@ def sanitize_title_for_romsfun(text: str) -> str:
     return sanitized.strip()
 
 
+# platform tag -> (search-page slug, game-page link slug)
+ROMSFUN_PLATFORM_SLUGS = {
+    "ps2": ("playstation-2", "playstation-2"),
+    "ps3": ("ps3", "playstation-3"),
+}
+
+
+def detect_romsfun_platform(game_name: str) -> str:
+    return "ps3" if re.search(r"\bps3\b", game_name, flags=re.IGNORECASE) else "ps2"
+
+
 def to_romsfun_search_url(game_name: str) -> str:
-    """Build romsfun.com search URL for PS2 games"""
-    clean_name = re.sub(r"\bps2\b", "", game_name, flags=re.IGNORECASE)
+    """Build romsfun.com search URL for PS2/PS3 games"""
+    search_slug = ROMSFUN_PLATFORM_SLUGS[detect_romsfun_platform(game_name)][0]
+    clean_name = re.sub(r"\bps[23]\b", "", game_name, flags=re.IGNORECASE)
     clean_name = sanitize_title_for_romsfun(clean_name)
     clean_name = " ".join(clean_name.split())
     query = quote_plus(clean_name)
-    return f"https://romsfun.com/roms/playstation-2/?s={query}"
+    return f"https://romsfun.com/roms/{search_slug}/?s={query}"
 
 
 def to_steamrip_search_url(game_name: str) -> str:
@@ -112,9 +124,9 @@ def to_steamrip_search_url(game_name: str) -> str:
 
 def normalize_name(text: str) -> str:
     """Normalize name for matching"""
-    no_ps2 = re.sub(r"\bps2\b", "", text, flags=re.IGNORECASE)
-    no_ps2 = sanitize_title_for_search(no_ps2)
-    alnum_only = re.sub(r"[^a-z0-9 ]+", " ", no_ps2.lower())
+    no_ps = re.sub(r"\bps[23]\b", "", text, flags=re.IGNORECASE)
+    no_ps = sanitize_title_for_search(no_ps)
+    alnum_only = re.sub(r"[^a-z0-9 ]+", " ", no_ps.lower())
     return " ".join(alnum_only.split())
 
 
@@ -242,9 +254,9 @@ def resolve_steamrip_html(url: str, log_fn: LogFn | None = None) -> str | None:
     return html
 
 
-def extract_ps2_game_links(html: str) -> list[str]:
-    """Extract PS2 game links from romsfun.com HTML"""
-    links = re.findall(r'href="([^"]+/roms/playstation-2/[^"]+\.html)"', html, flags=re.IGNORECASE)
+def extract_ps2_game_links(html: str, link_slug: str = "playstation-2") -> list[str]:
+    """Extract PS2/PS3 game links from romsfun.com HTML"""
+    links = re.findall(rf'href="([^"]+/roms/{re.escape(link_slug)}/[^"]+\.html)"', html, flags=re.IGNORECASE)
     unique_links: list[str] = []
     seen: set[str] = set()
     for link in links:
@@ -399,6 +411,10 @@ def pick_best_game_link(game_name: str, links: list[str], site_type: str = "roms
     for link in links:
         if site_type == "romsfun":
             slug = link.rsplit("/", 1)[-1].replace(".html", "")
+            # romsfun tacks an internal post id (often as '-new-508392' or
+            # '-42825') onto the slug - strip it so it isn't read as a sequel
+            # number or dilute the title similarity score.
+            slug = re.sub(r"-(?:new-)?\d{5,}$", "", slug)
         else:  # steamrip - remove trailing slash first before extracting last path component
             slug = link.rstrip("/").split("/")[-1].replace("-", " ")
 
@@ -562,7 +578,8 @@ def open_game_search_tabs(
                     continue
 
                 # Extract links
-                links = extract_ps2_game_links(html)
+                link_slug = ROMSFUN_PLATFORM_SLUGS[detect_romsfun_platform(game_name)][1]
+                links = extract_ps2_game_links(html, link_slug)
                 if not links:
                     if log_fn:
                         log_fn(f"✗ No results found for {game_name} on romsfun.com")
