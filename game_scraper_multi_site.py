@@ -566,6 +566,44 @@ def open_game_search_tabs(
                             result_fn(result)
                     continue
 
+                # PS2: try an exact-title match on archive.org's Redump set first
+                # (opened as a real Brave tab so IDM's extension captures it inside
+                # whatever archive.org login session is already in that browser).
+                if detect_romsfun_platform(game_name) == "ps2":
+                    from game_archiveorg import find_exact_match, download_url
+
+                    match = find_exact_match(game_name)
+                    if match:
+                        item_id, filename = match
+                        direct_link = download_url(item_id, filename)
+                        if log_fn:
+                            log_fn(f"✓ Found on archive.org (Redump PS2): {filename}")
+
+                        if open_in_browser:
+                            if log_fn:
+                                log_fn(f"→ Opening in Brave: {direct_link}")
+                            try:
+                                browser.open(direct_link)
+                                time.sleep(0.5)
+                            except Exception as e:
+                                if log_fn:
+                                    log_fn(f"⚠ Failed to open in Brave: {e}")
+
+                        result = {
+                            "game_name": game_name,
+                            "site_type": site_type,
+                            "search_url": search_url,
+                            "game_url": direct_link,
+                            "selected_host_name": "Archive.org Redump",
+                            "selected_host_link": direct_link,
+                            "romsfun_download_page_link": None,
+                            "romsfun_final_link": None,
+                        }
+                        resolved_results.append(result)
+                        if result_fn:
+                            result_fn(result)
+                        continue
+
                 # Romsfun: full fetch and resolve in-app
                 if log_fn:
                     log_fn(f"→ Resolving: {search_url}")
