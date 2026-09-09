@@ -16,6 +16,7 @@ from game_scraper_multi_site import fetch_html, normalize_name
 
 ARCHIVE_ITEMS = ["RedumpSonyPS2NTSCU", "RedumpSonyPS2NTSCUPart2"]
 _CACHE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
+_CACHE_VERSION = 2  # bump whenever _normalized_key changes, so stale keys rebuild
 _EXCLUDE_WORDS = ("demo", "beta", "proto")
 
 
@@ -24,10 +25,21 @@ def _cache_path() -> Path:
     return Path(base) / "WDGames" / "archiveorg_ps2_index.json"
 
 
+# Redump files the article at the end: "Warriors, The", "Chronicles of Narnia,
+# The - Prince Caspian". 82 of the ~1900 PS2 titles are named this way, so the
+# article has to move back to the front or none of them ever match a normal
+# "The Warriors" style title from the order list.
+_ARTICLE_SUFFIX_RE = re.compile(r"^(.*?), +(The|A|An)(?=[^A-Za-z]|$)", re.IGNORECASE)
+
+
+def _unswap_article(title: str) -> str:
+    return _ARTICLE_SUFFIX_RE.sub(lambda m: f"{m.group(2)} {m.group(1)}", title, count=1)
+
+
 def _normalized_key(filename: str) -> str:
     stem = filename[:-3] if filename.lower().endswith(".7z") else filename
     stem = re.sub(r"\([^)]*\)", " ", stem)  # drop (USA)/(v2.00)/(En,Fr,Es) tags
-    return normalize_name(stem)
+    return normalize_name(_unswap_article(stem))
 
 
 def _fetch_item_files(item_id: str) -> list[str]:
@@ -67,6 +79,8 @@ def _load_cached_index() -> dict | None:
         return None
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
+        if data.get("version") != _CACHE_VERSION:
+            return None
         if time.time() - data.get("built_at", 0) > _CACHE_MAX_AGE_SECONDS:
             return None
         return data.get("index")
@@ -77,7 +91,10 @@ def _load_cached_index() -> dict | None:
 def _save_cache(index: dict) -> None:
     path = _cache_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps({"built_at": time.time(), "index": index}), encoding="utf-8")
+    path.write_text(
+        json.dumps({"version": _CACHE_VERSION, "built_at": time.time(), "index": index}),
+        encoding="utf-8",
+    )
 
 
 _index_cache: dict | None = None
@@ -99,7 +116,7 @@ def _get_index() -> dict:
 
 
 def find_exact_match(game_name: str) -> tuple[str, str] | None:
-    hit = _get_index().get(normalize_name(game_name))
+    hit = _get_index().get(normalize_name(_unswap_article(game_name)))
     return (hit[0], hit[1]) if hit else None
 
 
@@ -109,6 +126,12 @@ def download_url(item_id: str, filename: str) -> str:
 
 if __name__ == "__main__":
     assert _normalized_key("007 - Agent Under Fire (USA).7z") == normalize_name("007 Agent Under Fire")
+    # article-suffix titles must match how a customer actually writes them
+    assert _normalized_key("Warriors, The (USA) (En,Fr,De,Es,It).7z") == normalize_name("The Warriors")
+    assert (_normalized_key("Chronicles of Narnia, The - Prince Caspian (USA).7z")
+            == normalize_name("The Chronicles of Narnia - Prince Caspian"))
+    # a comma that is not an article suffix must be left alone
+    assert _unswap_article("Warhammer 40,000 - Fire Warrior") == "Warhammer 40,000 - Fire Warrior"
     idx: dict[str, str] = {}
     for fn in ["Foo (USA) (v1.00).7z", "Foo (USA) (v2.00).7z"]:
         k = _normalized_key(fn)

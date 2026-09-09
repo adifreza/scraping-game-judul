@@ -88,3 +88,22 @@ def default_log_path(order_label: str) -> str:
     os.makedirs(log_dir, exist_ok=True)
     safe_label = re.sub(r'[<>:"/\\|?*]', "_", order_label).strip() or "copy"
     return os.path.join(log_dir, f"copy_{safe_label}.log")
+
+
+def copy_paths_to_clipboard(paths: list[str]) -> None:
+    """Put folders/files on the Windows clipboard as a file-drop list, so the
+    user can Ctrl+V them straight into Explorer on the customer HDD.
+
+    PowerShell's Set-Clipboard is used because tkinter's clipboard only holds
+    text - a file-drop list (CF_HDROP) needs the Win32/OLE clipboard, and
+    Set-Clipboard flushes it so it survives the helper process exiting.
+    """
+    if not paths:
+        raise ValueError("no paths to copy")
+    quoted = ",".join("'" + p.replace("'", "''") + "'" for p in paths)
+    subprocess.run(
+        ["powershell", "-NoProfile", "-NonInteractive", "-Command",
+         f"Set-Clipboard -LiteralPath {quoted}"],
+        check=True, capture_output=True, text=True,
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+    )
