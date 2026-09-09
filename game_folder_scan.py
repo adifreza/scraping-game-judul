@@ -172,3 +172,14 @@ def build_name_hints(
             if norm:
                 hints[norm] = order_title
     return hints
+
+
+def scan_extracted_folders(roots: list[str]) -> FolderIndex:
+    """Merge the indexes of several extracted-game roots (e.g. the local
+    games folder plus an external HDD). Earlier roots win on a name
+    clash, so the local copy is preferred over the same game on the HDD."""
+    merged: FolderIndex = {}
+    for root in roots:
+        for norm, entry in scan_extracted_folder(root).items():
+            merged.setdefault(norm, entry)
+    return merged

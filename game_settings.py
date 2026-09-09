@@ -12,9 +12,12 @@ from pathlib import Path
 DEFAULT_SETTINGS = {
     "downloads_folder": str(Path.home() / "Downloads"),
     "extracted_root": r"D:\GAMES INSTALL",
+    "extracted_root_2": "",   # optional 2nd scan root, e.g. an external HDD
     "unrar_path": "",
     "customer_hdd_target": "",
     "fuzzy_threshold": 0.72,
+    "order_lists": {},          # slug -> raw pasted order text, per customer
+    "active_order_list": "pesanan",
     "release_suffixes": [
         "-steamrip.com", "-steamrip", "-rip-dodi", "-dodi", "-codex",
         "-plaza", "-fitgirl", "-elamigos", "-empress", "-skidrow",

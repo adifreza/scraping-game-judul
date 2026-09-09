@@ -92,29 +92,36 @@ def _create_btn(parent, text, command, style_type="normal", **pack_kwargs) -> tk
 class GameStatusScannerPanel(tk.Frame):
     """Embeddable panel - pack/grid this into any parent widget."""
 
-    def __init__(self, master: tk.Widget, default_folder: str = "") -> None:
+    def __init__(
+        self, master: tk.Widget, default_folder: str = "", default_folder_2: str = ""
+    ) -> None:
         super().__init__(master, bg=APP_BG)
         self._target_folder = tk.StringVar(value=default_folder)
+        self._target_folder_2 = tk.StringVar(value=default_folder_2)
         self._results: list[tuple[str, folder_scan.MatchResult]] = []
         self._build_ui()
 
     def _build_ui(self) -> None:
-        # Folder picker row
-        folder_row = tk.Frame(self, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR)
-        folder_row.pack(fill="x", padx=20, pady=(16, 12))
+        # Two folder pickers - the local games folder and an external HDD -
+        # both scanned together in one pass.
+        picker_wrap = tk.Frame(self, bg=APP_BG)
+        picker_wrap.pack(fill="x", padx=20, pady=(16, 12))
 
-        tk.Label(
-            folder_row, text="📁 Folder Target:", font=("Segoe UI", 10, "bold"),
-            fg=TEXT_FG, bg=PANEL_BG,
-        ).pack(side="left", padx=(14, 8), pady=12)
-
-        self._folder_label = tk.Label(
-            folder_row, textvariable=self._target_folder, font=("Consolas", 10),
-            fg=MUTED_FG, bg=PANEL_BG, anchor="w",
-        )
-        self._folder_label.pack(side="left", fill="x", expand=True, pady=12)
-
-        _create_btn(folder_row, text="Pilih Folder...", command=self._choose_folder, side="right", padx=(0, 14), pady=8)
+        for title, var, chooser in (
+            ("📁 Folder Utama", self._target_folder, self._choose_folder),
+            ("💽 HDD Eksternal", self._target_folder_2, self._choose_folder_2),
+        ):
+            folder_row = tk.Frame(picker_wrap, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR)
+            folder_row.pack(fill="x", pady=(0, 8))
+            tk.Label(
+                folder_row, text=f"{title}:", font=("Segoe UI", 10, "bold"),
+                fg=TEXT_FG, bg=PANEL_BG, width=16, anchor="w",
+            ).pack(side="left", padx=(14, 8), pady=10)
+            tk.Label(
+                folder_row, textvariable=var, font=("Consolas", 10),
+                fg=MUTED_FG, bg=PANEL_BG, anchor="w",
+            ).pack(side="left", fill="x", expand=True, pady=10)
+            _create_btn(folder_row, text="Pilih...", command=chooser, side="right", padx=(0, 12), pady=6)
 
         body = tk.Frame(self, bg=APP_BG)
         body.pack(fill="both", expand=True, padx=20, pady=(0, 16))
@@ -139,6 +146,13 @@ class GameStatusScannerPanel(tk.Frame):
         _create_btn(btn_row, text="Load Sample", command=self._load_sample, side="left", padx=(8, 0))
         _create_btn(btn_row, text="Clear", command=self._clear_input, side="right")
 
+        # Packed bottom-first: the expanding text box below would otherwise
+        # squeeze the scan button off the panel.
+        _create_btn(
+            left_panel, text="🔍  SCAN SEKARANG", command=self._scan_clicked, style_type="accent",
+            side="bottom", fill="x", padx=16, pady=(0, 16),
+        )
+
         text_frame = tk.Frame(left_panel, bg=PANEL_BG)
         text_frame.pack(fill="both", expand=True, padx=16, pady=(0, 12))
         text_scroll = ttk.Scrollbar(text_frame, orient="vertical")
@@ -151,11 +165,6 @@ class GameStatusScannerPanel(tk.Frame):
         )
         self.input_text.pack(side="left", fill="both", expand=True)
         text_scroll.config(command=self.input_text.yview)
-
-        _create_btn(
-            left_panel, text="🔍  SCAN SEKARANG", command=self._scan_clicked, style_type="accent",
-            fill="x", padx=16, pady=(0, 16),
-        )
 
         # Right: results
         right_panel = tk.Frame(body, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR)
@@ -222,13 +231,18 @@ class GameStatusScannerPanel(tk.Frame):
         )
 
     def _choose_folder(self) -> None:
-        initial = self._target_folder.get() or "D:\\"
+        self._pick_into(self._target_folder, "Pilih folder utama yang mau di-scan")
+
+    def _choose_folder_2(self) -> None:
+        self._pick_into(self._target_folder_2, "Pilih folder HDD eksternal yang ikut di-scan")
+
+    def _pick_into(self, var: tk.StringVar, title: str) -> None:
+        initial = var.get() or "D:\\"
         chosen = filedialog.askdirectory(
-            title="Pilih folder yang mau di-scan",
-            initialdir=initial if os.path.isdir(initial) else "D:\\",
+            title=title, initialdir=initial if os.path.isdir(initial) else "D:\\",
         )
         if chosen:
-            self._target_folder.set(chosen)
+            var.set(chosen)
 
     def _paste_clipboard(self) -> None:
         try:
@@ -253,9 +267,12 @@ class GameStatusScannerPanel(tk.Frame):
         self._summary_label.config(text="Belum ada hasil scan", fg=MUTED_FG)
 
     def _scan_clicked(self) -> None:
-        folder = self._target_folder.get().strip()
-        if not folder or not os.path.isdir(folder):
-            messagebox.showwarning("Folder Belum Dipilih", "Pilih folder yang valid dulu sebelum scan.")
+        folders = [
+            f for f in (self._target_folder.get().strip(), self._target_folder_2.get().strip())
+            if f and os.path.isdir(f)
+        ]
+        if not folders:
+            messagebox.showwarning("Folder Belum Dipilih", "Pilih minimal satu folder yang valid dulu sebelum scan.")
             return
 
         titles = parse_order_list(self.input_text.get("1.0", "end-1c"))
@@ -267,11 +284,19 @@ class GameStatusScannerPanel(tk.Frame):
         self._summary_label.config(text="Sedang scan...", fg=ACCENT)
 
         def worker() -> None:
-            index = folder_scan.scan_extracted_folder(folder)
+            index = folder_scan.scan_extracted_folders(folders)
             results = [(title, folder_scan.match_title(title, index, {}, threshold=0.72)) for title in titles]
             self.after(0, lambda: self._render_results(results))
 
         threading.Thread(target=worker, daemon=True).start()
+
+    @staticmethod
+    def _match_label(match: folder_scan.MatchResult) -> str:
+        """Folder name plus its drive, so a hit on the external HDD is
+        distinguishable from one in the local games folder."""
+        label = match.matched_label or "-"
+        drive = os.path.splitdrive(match.matched_path or "")[0]
+        return f"{label}   [{drive}]" if drive else label
 
     def _render_results(self, results: list[tuple[str, folder_scan.MatchResult]]) -> None:
         self._results = results
@@ -282,11 +307,11 @@ class GameStatusScannerPanel(tk.Frame):
             if match.status == folder_scan.STATUS_NOT_FOUND:
                 status_text, tag, match_label = "❌ TIDAK ADA", "missing", "-"
             elif match.is_exact:
-                status_text, tag, match_label = "✅ ADA", "found", match.matched_label or "-"
+                status_text, tag, match_label = "✅ ADA", "found", self._match_label(match)
                 found += 1
             else:
                 pct = int(round(match.confidence * 100))
-                status_text, tag, match_label = f"🟡 MIRIP {pct}%", "fuzzy", match.matched_label or "-"
+                status_text, tag, match_label = f"🟡 MIRIP {pct}%", "fuzzy", self._match_label(match)
                 fuzzy += 1
 
             self.result_tree.insert("", "end", values=(i, title, status_text, match_label), tags=(tag,))
