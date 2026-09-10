@@ -14,9 +14,10 @@ import game_extraction
 import game_copy
 import game_ps2_serials
 import game_status_scanner
+import game_cleanup
 
 
-VERSION = "2.4"
+VERSION = "2.5"
 
 from game_settings import (
     APP_BG,
@@ -282,6 +283,10 @@ class GameLauncherMultiSite(tk.Tk):
         )
         self._scanner_panel.pack(fill="both", expand=True)
 
+        self._cleanup_tab = tk.Frame(self._page_host, bg=APP_BG)
+        self._cleanup_panel = game_cleanup.GameCleanupPanel(self._cleanup_tab)
+        self._cleanup_panel.pack(fill="both", expand=True)
+
         self._switch_tab("downloader")
         self._update_folder_badges()
 
@@ -309,7 +314,11 @@ class GameLauncherMultiSite(tk.Tk):
         ).pack(anchor="w", padx=20, pady=(16, 6))
 
         self._tab_buttons: dict[str, tk.Button] = {}
-        for key, label in (("downloader", "\U0001F4E5    Downloader"), ("scanner", "\U0001F50D    Cek Status Game")):
+        for key, label in (
+            ("downloader", "\U0001F4E5    Downloader"),
+            ("scanner", "\U0001F50D    Cek Status Game"),
+            ("cleanup", "\U0001F5D1    Bersih-bersih"),
+        ):
             btn = tk.Button(
                 rail, text=label, command=lambda k=key: self._switch_tab(k),
                 anchor="w", font=("Segoe UI", 10, "bold"), relief="flat", bd=0,
@@ -434,18 +443,27 @@ class GameLauncherMultiSite(tk.Tk):
                 fg="#ffffff" if active else MUTED_FG,
             )
 
-        if key == "downloader":
-            self._scanner_tab.pack_forget()
-            self._downloader_tab.pack(fill="both", expand=True)
-            self._page_title.config(text="Downloader")
-            self._page_subtitle.config(
-                text="Paste daftar pesanan • cek status di 2 folder • resolve link • ekstrak & copy"
-            )
-        else:
-            self._downloader_tab.pack_forget()
-            self._scanner_tab.pack(fill="both", expand=True)
-            self._page_title.config(text="Cek Status Game")
-            self._page_subtitle.config(text="Scan folder mana pun untuk lihat game yang sudah ada / belum ada")
+        tabs = {
+            "downloader": (
+                self._downloader_tab, "Downloader",
+                "Paste daftar pesanan • cek status di 2 folder • resolve link • ekstrak & copy",
+            ),
+            "scanner": (
+                self._scanner_tab, "Cek Status Game",
+                "Scan folder mana pun untuk lihat game yang sudah ada / belum ada",
+            ),
+            "cleanup": (
+                self._cleanup_tab, "Bersih-bersih Folder",
+                "Game yang tidak dipesan customer mana pun = boleh dihapus permanen dari sini",
+            ),
+        }
+        for tab_key, (frame, title, subtitle) in tabs.items():
+            if tab_key == key:
+                frame.pack(fill="both", expand=True)
+                self._page_title.config(text=title)
+                self._page_subtitle.config(text=subtitle)
+            else:
+                frame.pack_forget()
 
     # ------------------------------------------------------------------
     # Downloader page
