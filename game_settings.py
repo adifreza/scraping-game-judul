@@ -9,6 +9,39 @@ import json
 import os
 from pathlib import Path
 
+# One dark theme for the whole app. Both the launcher and the embedded status
+# scanner read these, so an accent changed here changes both - they used to
+# keep private copies and drift apart.
+APP_BG = "#070b14"        # app canvas
+SIDEBAR_BG = "#0b1120"    # left nav rail
+PANEL_BG = "#111a2e"      # cards / panels
+PANEL_ALT = "#16203a"     # card header, button idle
+TEXT_BG = "#0a0f1c"       # text inputs and tables
+STRIPE_BG = "#0d1424"     # alternating table row
+ACCENT = "#6366f1"        # indigo - primary
+ACCENT_HOVER = "#818cf8"
+ACCENT_PINK = "#e11d68"   # pink - destructive/heavy actions
+OK = "#34d399"            # already extracted
+WARN = "#fbbf24"          # downloaded, not extracted
+DANGER = "#f87171"        # missing
+TEXT_FG = "#e8edf7"
+MUTED_FG = "#7d8cab"
+BORDER_COLOR = "#1e2b47"
+
+
+# Order-list "tabs": the default order plus 5 customer slots. Text for each is
+# persisted under "order_lists" so switching never loses a list. Lives here so
+# both the launcher and the status scanner can read the slots without importing
+# each other.
+LIST_DEFS = [
+    ("pesanan", "📋 Pesanan"),
+    ("cust1", "👤 Cust 1"),
+    ("cust2", "👤 Cust 2"),
+    ("cust3", "👤 Cust 3"),
+    ("cust4", "👤 Cust 4"),
+    ("cust5", "👤 Cust 5"),
+]
+
 DEFAULT_SETTINGS = {
     "downloads_folder": str(Path.home() / "Downloads"),
     "extracted_root": r"D:\GAMES INSTALL",

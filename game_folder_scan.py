@@ -11,8 +11,14 @@ from dataclasses import dataclass
 from difflib import SequenceMatcher
 
 from game_scraper_multi_site import normalize_name
+import game_ps2_serials
 
 ARCHIVE_EXTENSIONS = (".rar", ".zip", ".7z")
+
+# A finished PS2 game is a single disc image sitting next to the PC game
+# folders, not a folder of its own - so the extracted-root scan has to index
+# these files too or every PS2 title reads as "belum ada".
+DISC_EXTENSIONS = (".iso", ".chd", ".bin", ".cue", ".mdf", ".nrg", ".img")
 
 STATUS_EXTRACTED = "extracted"
 STATUS_DOWNLOADED = "downloaded"
@@ -55,7 +61,13 @@ def clean_archive_filename(filename: str, release_suffixes: list[str] | None = N
 
 
 def scan_extracted_folder(root: str) -> FolderIndex:
-    """Index immediate subfolders of the extracted-games root (e.g. D:\\GAMES INSTALL)."""
+    """Index the extracted-games root: immediate subfolders (PC games) plus
+    disc images (PS2 games).
+
+    A disc image still named after its serial - "SCUS-97481 (1.01).iso" - is
+    additionally indexed under its real title, so it matches an order line
+    reading "God of War II" even before anyone renames the file.
+    """
     index: FolderIndex = {}
     if not root or not os.path.isdir(root):
         return index
@@ -63,9 +75,21 @@ def scan_extracted_folder(root: str) -> FolderIndex:
         with os.scandir(root) as entries:
             for entry in entries:
                 if entry.is_dir():
-                    norm = normalize_name(entry.name)
-                    if norm:
-                        index[norm] = (entry.name, entry.path)
+                    name = entry.name
+                elif entry.name.lower().endswith(DISC_EXTENSIONS):
+                    name = os.path.splitext(entry.name)[0]
+                else:
+                    continue
+
+                norm = normalize_name(name)
+                if norm:
+                    index.setdefault(norm, (entry.name, entry.path))
+
+                real_title = game_ps2_serials.title_for_name(name)
+                if real_title:
+                    title_norm = normalize_name(real_title)
+                    if title_norm:
+                        index.setdefault(title_norm, (entry.name, entry.path))
     except OSError:
         pass
     return index

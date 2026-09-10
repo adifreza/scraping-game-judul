@@ -27,6 +27,28 @@ def test_missing_root_is_ignored():
     assert folder_scan.scan_extracted_folders(["", r"Z:\nope"]) == {}
 
 
+def test_serial_named_iso_matches_its_real_title():
+    """A PS2 disc still named after its serial has to satisfy an order line
+    that says "God of War II" - before anyone renames the file."""
+    import game_ps2_serials
+
+    game_ps2_serials._index = {"SCUS-97481": "God of War II"}
+    try:
+        with tempfile.TemporaryDirectory() as root:
+            open(os.path.join(root, "SCUS-97481 (1.01).iso"), "w").close()
+            os.mkdir(os.path.join(root, "Hollow Knight Silksong"))
+
+            index = folder_scan.scan_extracted_folder(root)
+            assert folder_scan.normalize_name("God of War II") in index
+            assert folder_scan.normalize_name("Hollow Knight Silksong") in index
+
+            match = folder_scan.match_title("God of War II", index, {})
+            assert match.status == folder_scan.STATUS_EXTRACTED and match.is_exact
+            assert match.matched_label == "SCUS-97481 (1.01).iso"
+    finally:
+        game_ps2_serials._index = None
+
+
 def test_window_builds_and_slots_behave():
     import pyperclip
 
@@ -63,5 +85,6 @@ def test_window_builds_and_slots_behave():
 if __name__ == "__main__":
     test_two_roots_merge_local_wins()
     test_missing_root_is_ignored()
+    test_serial_named_iso_matches_its_real_title()
     test_window_builds_and_slots_behave()
     print("ok")

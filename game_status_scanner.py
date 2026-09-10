@@ -15,15 +15,25 @@ from tkinter import filedialog, messagebox, ttk
 import pyperclip
 
 import game_folder_scan as folder_scan
+import game_settings
 
-APP_BG = "#090d16"
-PANEL_BG = "#151c2c"
-TEXT_BG = "#0c101b"
-ACCENT = "#6366f1"
-ACCENT_PINK = "#db2777"
-TEXT_FG = "#f1f5f9"
-MUTED_FG = "#94a3b8"
-BORDER_COLOR = "#334155"
+from game_settings import (
+    APP_BG,
+    SIDEBAR_BG,
+    PANEL_BG,
+    PANEL_ALT,
+    TEXT_BG,
+    STRIPE_BG,
+    ACCENT,
+    ACCENT_HOVER,
+    ACCENT_PINK,
+    OK,
+    WARN,
+    DANGER,
+    TEXT_FG,
+    MUTED_FG,
+    BORDER_COLOR,
+)
 
 SAMPLE_TEXT = """Daftar Game Pesanan
 
@@ -70,16 +80,16 @@ def parse_order_list(text: str) -> list[str]:
 
 def _create_btn(parent, text, command, style_type="normal", **pack_kwargs) -> tk.Button:
     if style_type == "accent":
-        bg, fg, active_bg = ACCENT, "#ffffff", "#4f46e5"
+        bg, fg, active_bg = ACCENT, "#ffffff", ACCENT_HOVER
     elif style_type == "accent_pink":
-        bg, fg, active_bg = ACCENT_PINK, "#ffffff", "#be185d"
+        bg, fg, active_bg = ACCENT_PINK, "#ffffff", "#f43f75"
     else:
-        bg, fg, active_bg = "#1e293b", "#f1f5f9", "#334155"
+        bg, fg, active_bg = PANEL_ALT, TEXT_FG, "#22304f"
 
     btn = tk.Button(
         parent, text=text, command=command, bg=bg, fg=fg,
         activebackground=active_bg, activeforeground="#ffffff",
-        font=("Segoe UI", 10, "bold"), relief="flat", bd=0,
+        font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
         padx=16, pady=9, cursor="hand2",
     )
     btn.bind("<Enter>", lambda e: btn.config(bg=active_bg))
@@ -108,7 +118,7 @@ class GameStatusScannerPanel(tk.Frame):
         picker_wrap.pack(fill="x", padx=20, pady=(16, 12))
 
         for title, var, chooser in (
-            ("📁 Folder Utama", self._target_folder, self._choose_folder),
+            ("📁 Folder / HDD Cust", self._target_folder, self._choose_folder),
             ("💽 HDD Eksternal", self._target_folder_2, self._choose_folder_2),
         ):
             folder_row = tk.Frame(picker_wrap, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR)
@@ -139,6 +149,26 @@ class GameStatusScannerPanel(tk.Frame):
             left_header, text="Daftar Game Pesanan", font=("Segoe UI", 13, "bold"),
             fg="#ffffff", bg=PANEL_BG,
         ).pack(side="left")
+
+        # Pull a saved order list straight in, so "is Cust 4's HDD complete?"
+        # is two clicks: their slot, then Scan against their drive.
+        tk.Label(
+            left_panel, text="AMBIL DARI DAFTAR PESANAN", font=("Segoe UI", 8, "bold"),
+            fg=MUTED_FG, bg=PANEL_BG, anchor="w",
+        ).pack(fill="x", padx=16, pady=(0, 6))
+
+        slot_row = tk.Frame(left_panel, bg=PANEL_BG)
+        slot_row.pack(fill="x", padx=16, pady=(0, 10))
+        for column in range(3):
+            slot_row.columnconfigure(column, weight=1)
+        for i, (key, label) in enumerate(game_settings.LIST_DEFS):
+            btn = tk.Button(
+                slot_row, text=label, command=lambda k=key: self._load_order_slot(k),
+                bg=PANEL_ALT, fg=TEXT_FG, activebackground=ACCENT, activeforeground="#ffffff",
+                font=("Segoe UI", 9, "bold"), relief="flat", bd=0,
+                padx=6, pady=7, cursor="hand2", highlightthickness=0,
+            )
+            btn.grid(row=i // 3, column=i % 3, sticky="we", padx=2, pady=2)
 
         btn_row = tk.Frame(left_panel, bg=PANEL_BG)
         btn_row.pack(fill="x", padx=16, pady=(0, 10))
@@ -231,7 +261,7 @@ class GameStatusScannerPanel(tk.Frame):
         )
 
     def _choose_folder(self) -> None:
-        self._pick_into(self._target_folder, "Pilih folder utama yang mau di-scan")
+        self._pick_into(self._target_folder, "Pilih folder / HDD customer yang mau di-scan")
 
     def _choose_folder_2(self) -> None:
         self._pick_into(self._target_folder_2, "Pilih folder HDD eksternal yang ikut di-scan")
@@ -243,6 +273,22 @@ class GameStatusScannerPanel(tk.Frame):
         )
         if chosen:
             var.set(chosen)
+
+    def load_order_text(self, text: str) -> None:
+        """Drop an order list into the input (used by the launcher's
+        'Cek HDD Cust' shortcut)."""
+        self.input_text.delete("1.0", "end")
+        self.input_text.insert("1.0", text)
+        self._clear_results()
+
+    def _load_order_slot(self, key: str) -> None:
+        """Load one saved customer slot. Settings are re-read from disk so the
+        slot reflects edits made on the downloader tab in this same session."""
+        text = (game_settings.load_settings().get("order_lists", {}) or {}).get(key, "")
+        if not text.strip():
+            messagebox.showinfo("Daftar Kosong", f"Slot '{dict(game_settings.LIST_DEFS)[key]}' masih kosong.")
+            return
+        self.load_order_text(text)
 
     def _paste_clipboard(self) -> None:
         try:

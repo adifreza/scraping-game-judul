@@ -12,28 +12,29 @@ import game_folder_scan as folder_scan
 import game_settings
 import game_extraction
 import game_copy
+import game_ps2_serials
 import game_status_scanner
 
 
-VERSION = "2.3"
+VERSION = "2.4"
 
-# Palette: one dark theme, semantic names. Sidebar/panel/input are three
-# distinct elevations so cards read as cards instead of one flat slab.
-APP_BG = "#070b14"        # app canvas
-SIDEBAR_BG = "#0b1120"    # left nav rail
-PANEL_BG = "#111a2e"      # cards / panels
-PANEL_ALT = "#16203a"     # card header, button idle
-TEXT_BG = "#0a0f1c"       # text inputs and tables
-STRIPE_BG = "#0d1424"     # alternating table row
-ACCENT = "#6366f1"        # indigo - primary
-ACCENT_HOVER = "#818cf8"
-ACCENT_PINK = "#e11d68"   # pink - destructive/heavy actions
-OK = "#34d399"            # already extracted
-WARN = "#fbbf24"          # downloaded, not extracted
-DANGER = "#f87171"        # missing
-TEXT_FG = "#e8edf7"
-MUTED_FG = "#7d8cab"
-BORDER_COLOR = "#1e2b47"
+from game_settings import (
+    APP_BG,
+    SIDEBAR_BG,
+    PANEL_BG,
+    PANEL_ALT,
+    TEXT_BG,
+    STRIPE_BG,
+    ACCENT,
+    ACCENT_HOVER,
+    ACCENT_PINK,
+    OK,
+    WARN,
+    DANGER,
+    TEXT_FG,
+    MUTED_FG,
+    BORDER_COLOR,
+)
 
 STATUS_COLORS = {
     "extracted": OK,
@@ -67,16 +68,8 @@ SAMPLE_TEXT = """Daftar Game Pesanan
 Total Size: 937.6 GB"""
 
 
-# Order-list "tabs": the default order plus 5 customer slots. Text for each is
-# persisted in settings.json under "order_lists" so switching never loses a list.
-LIST_DEFS = [
-    ("pesanan", "📋 Pesanan"),
-    ("cust1", "👤 Cust 1"),
-    ("cust2", "👤 Cust 2"),
-    ("cust3", "👤 Cust 3"),
-    ("cust4", "👤 Cust 4"),
-    ("cust5", "👤 Cust 5"),
-]
+# Slot definitions live in game_settings so the scanner panel can read them too.
+LIST_DEFS = game_settings.LIST_DEFS
 
 
 def normalize_parsed_title(title: str) -> str:
@@ -156,6 +149,14 @@ class GameLauncherMultiSite(tk.Tk):
         self._build_ui()
         self._load_active_list()
         self.bind_all("<Control-Return>", lambda event: self._start_all())
+
+        # Warm the PS2 serial index off the main thread: the first fetch is a
+        # ~2 MB download, and a scan started before it lands simply misses the
+        # serial-named ISOs until this re-runs it.
+        game_ps2_serials.ensure_index_async(
+            log_fn=lambda msg: self.after(0, lambda: self._log(msg)),
+            on_ready=lambda: self.after(0, self._refresh_after_background_change),
+        )
 
     def _configure_theme(self) -> None:
         style = ttk.Style(self)
@@ -332,7 +333,18 @@ class GameLauncherMultiSite(tk.Tk):
 
         footer = tk.Frame(rail, bg=SIDEBAR_BG)
         footer.pack(side="bottom", fill="x", padx=12, pady=14)
-        self._create_btn(footer, "⚙   Settings", self._open_settings_dialog, "normal", fill="x")
+        # Tools that act on folders/lists as a whole live here - the downloader
+        # toolbar is already full of per-row actions.
+        self._create_btn(
+            footer, "🎮   Rename Game PS2", self._open_ps2_rename_dialog, "normal", fill="x",
+        )
+        self._create_btn(
+            footer, "💽   Cek HDD Customer", self._check_customer_hdd, "normal",
+            fill="x", pady=(6, 0),
+        )
+        self._create_btn(
+            footer, "⚙   Settings", self._open_settings_dialog, "normal", fill="x", pady=(6, 0),
+        )
         self._create_btn(
             footer, "\U0001F50D   Scan Ulang Folder", self._rescan_button_clicked, "ghost", fill="x", pady=(6, 0),
         )
@@ -962,6 +974,142 @@ class GameLauncherMultiSite(tk.Tk):
             self.after(0, finish)
 
         game_copy.run_copy(src, dest_dir, log_path, log_fn=log_line, on_done=on_done)
+
+    # ------------------------------------------------------------------
+    # PS2: serial-named discs -> real titles
+    # ------------------------------------------------------------------
+
+    def _check_customer_hdd(self) -> None:
+        """Open the scanner against the customer's own drive, preloaded with
+        the active order list - the 'is Cust 4's HDD complete yet?' check."""
+        self._save_active_list_text()
+        text = self.input_text.get("1.0", "end-1c")
+        if not text.strip():
+            messagebox.showinfo("Daftar Kosong", "Isi dulu daftar pesanan customer di tab Downloader.")
+            return
+        self._scanner_panel.load_order_text(text)
+        self._switch_tab("scanner")
+        self._log(
+            f"💽 Daftar '{dict(LIST_DEFS)[self._active_list]}' dimuat ke Cek Status Game. "
+            "Pilih folder/HDD customer lalu Scan."
+        )
+
+    def _open_ps2_rename_dialog(self) -> None:
+        """Propose 'SCUS-97481 (1.01).iso' -> 'God of War II.iso' for every
+        serial-named disc in the scan roots, and let the user take them all or
+        pick rows by hand."""
+        roots = [path for _label, path in self._scan_roots()]
+        if not roots:
+            messagebox.showwarning("Folder Belum Diatur", "Atur folder game dulu di Settings.")
+            return
+
+        dialog = tk.Toplevel(self)
+        dialog.title("Rename Game PS2")
+        dialog.configure(bg=PANEL_BG)
+        dialog.geometry("980x560")
+        dialog.transient(self)
+
+        head = tk.Frame(dialog, bg=PANEL_BG)
+        head.pack(fill="x", padx=16, pady=(16, 4))
+        tk.Label(
+            head, text="Rename Game PS2 ke Judul Asli", font=("Segoe UI", 14, "bold"),
+            fg="#ffffff", bg=PANEL_BG,
+        ).pack(side="left")
+        status = tk.Label(
+            head, text="Menyiapkan database serial...", font=("Segoe UI", 9), fg=MUTED_FG, bg=PANEL_BG,
+        )
+        status.pack(side="right")
+
+        tk.Label(
+            dialog,
+            text="Pilih baris untuk rename sebagian (Ctrl/Shift buat pilih banyak), "
+                 "atau langsung Rename Semua. Nama lama tidak ditimpa kalau bentrok.",
+            font=("Segoe UI", 9), fg=MUTED_FG, bg=PANEL_BG, anchor="w", justify="left",
+        ).pack(fill="x", padx=16, pady=(0, 10))
+
+        table = tk.Frame(dialog, bg=TEXT_BG, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        table.pack(fill="both", expand=True, padx=16)
+        scroll = ttk.Scrollbar(table, orient="vertical")
+        scroll.pack(side="right", fill="y")
+        tree = ttk.Treeview(
+            table, columns=("current", "serial", "title", "new"),
+            show="headings", selectmode="extended", yscrollcommand=scroll.set,
+        )
+        for col, text, width, anchor in (
+            ("current", "Nama Sekarang", 260, "w"), ("serial", "Serial", 110, "center"),
+            ("title", "Judul Asli", 250, "w"), ("new", "Nama Baru", 280, "w"),
+        ):
+            tree.heading(col, text=text)
+            tree.column(col, width=width, anchor=anchor)
+        tree.pack(side="left", fill="both", expand=True)
+        scroll.config(command=tree.yview)
+
+        plans: dict[str, game_ps2_serials.RenamePlan] = {}
+
+        def render(found: list[game_ps2_serials.RenamePlan]) -> None:
+            tree.delete(*tree.get_children())
+            plans.clear()
+            for plan in found:
+                iid = tree.insert(
+                    "", "end", values=(plan.current_name, plan.serial, plan.title, plan.new_name),
+                )
+                plans[iid] = plan
+            status.config(
+                text=f"{len(found)} disc bisa di-rename" if found else "Tidak ada file bernama serial PS2",
+                fg=OK if found else MUTED_FG,
+            )
+
+        def reload_plans() -> None:
+            status.config(text="Memindai...", fg=MUTED_FG)
+
+            def worker() -> None:
+                game_ps2_serials.ensure_index(
+                    log_fn=lambda msg: self.after(0, lambda m=msg: self._log(m))
+                )
+                found = game_ps2_serials.plan_renames(roots)
+                if dialog.winfo_exists():
+                    self.after(0, lambda: render(found))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+        def run_renames(chosen: list[game_ps2_serials.RenamePlan]) -> None:
+            if not chosen:
+                messagebox.showinfo("Rename PS2", "Pilih dulu baris yang mau di-rename.", parent=dialog)
+                return
+            if not messagebox.askyesno(
+                "Rename PS2",
+                f"Rename {len(chosen)} file/folder ke judul aslinya?\n\n"
+                "Ini mengubah nama di disk (Playnite akan membacanya sebagai judul game).",
+                parent=dialog,
+            ):
+                return
+            done = 0
+            for plan in chosen:
+                try:
+                    game_ps2_serials.apply_rename(plan)
+                    self._log(f"✓ Rename: {plan.current_name}  ->  {plan.new_name}")
+                    done += 1
+                except Exception as exc:
+                    self._log(f"✗ Gagal rename {plan.current_name}: {exc}")
+            self._log(f"🎮 {done}/{len(chosen)} game PS2 di-rename.")
+            reload_plans()
+            self._refresh_after_background_change()
+
+        buttons = tk.Frame(dialog, bg=PANEL_BG)
+        buttons.pack(fill="x", padx=16, pady=14)
+        self._create_btn(
+            buttons, "✓  Rename Terpilih",
+            lambda: run_renames([plans[i] for i in tree.selection() if i in plans]),
+            "accent", side="left",
+        )
+        self._create_btn(
+            buttons, "⚡  Rename Semua",
+            lambda: run_renames(list(plans.values())), "accent_pink", side="left", padx=(8, 0),
+        )
+        self._create_btn(buttons, "🔄  Scan Ulang", reload_plans, "ghost", side="left", padx=(8, 0))
+        self._create_btn(buttons, "Tutup", dialog.destroy, "normal", side="right")
+
+        reload_plans()
 
     def _open_settings_dialog(self) -> None:
         """Small preferences dialog: folder paths + fuzzy threshold. Not a
