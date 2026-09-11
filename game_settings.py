@@ -51,6 +51,7 @@ DEFAULT_SETTINGS = {
     "fuzzy_threshold": 0.72,
     "order_lists": {},          # slug -> raw pasted order text, per customer
     "active_order_list": "pesanan",
+    "customer_hdd_folders": {},  # slug -> last-picked HDD folder, for the cleanup "sudah dikirim?" check
     "release_suffixes": [
         "-steamrip.com", "-steamrip", "-rip-dodi", "-dodi", "-codex",
         "-plaza", "-fitgirl", "-elamigos", "-empress", "-skidrow",

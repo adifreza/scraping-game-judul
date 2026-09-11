@@ -17,7 +17,7 @@ import game_status_scanner
 import game_cleanup
 
 
-VERSION = "2.5"
+VERSION = "2.6"
 
 from game_settings import (
     APP_BG,

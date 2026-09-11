@@ -6,13 +6,20 @@ folder scan turns up that no list asks for is safe to delete. Covers both
 extracted game folders/disc images and not-yet-extracted archives sitting in
 Downloads. No history log - folder contents and the order lists are the only
 truth (same rule as game_folder_scan.py).
+
+A game already copied to the ONE customer who ordered it no longer needs to
+block deletion - so classify() can optionally live-scan one customer's HDD
+folder and, for titles actually found there, drop that customer from the
+"still wanted" list. If a *different* customer also ordered it and hasn't
+been verified delivered, the game still shows as blocked - that's the "jangan
+dihapus, masih dipesan cust lain" warning.
 """
 import os
 import shutil
 import threading
 import tkinter as tk
 from dataclasses import dataclass, field
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 
 import game_folder_scan as folder_scan
 import game_settings
@@ -38,6 +45,7 @@ class CleanupEntry:
     path: str
     extracted: bool                       # True = extracted folder/disc, False = archive
     wanted_by: list[str] = field(default_factory=list)
+    delivered_to: list[str] = field(default_factory=list)  # customers confirmed to already have it on their HDD
 
     @property
     def deletable(self) -> bool:
@@ -50,11 +58,20 @@ def classify(
     order_lists: dict[str, str],
     release_suffixes: list[str] | None = None,
     threshold: float = 0.72,
+    verify_customer: str | None = None,
+    verify_folder: str = "",
 ) -> list[CleanupEntry]:
     """One CleanupEntry per real folder/file in the scan roots + Downloads,
-    tagged with which customer slots (if any) still want it."""
+    tagged with which customer slots (if any) still want it.
+
+    verify_customer/verify_folder: optionally live-scan one customer's HDD
+    folder. A title from that customer's order list found there counts as
+    already delivered - it no longer blocks deletion on its own, though
+    another customer still wanting it (unverified) does.
+    """
     extracted_index = folder_scan.scan_extracted_folders(scan_roots)
     downloads_index = folder_scan.scan_downloads_folder(downloads_folder, release_suffixes)
+    hdd_index = folder_scan.scan_extracted_folder(verify_folder) if verify_folder else {}
 
     entries: dict[str, CleanupEntry] = {}
     for _norm, (label, path) in extracted_index.items():
@@ -67,7 +84,17 @@ def classify(
         for title in parse_order_list(order_lists.get(key, "") or ""):
             match = folder_scan.match_title(title, extracted_index, downloads_index, threshold)
             entry = entries.get(match.matched_path or "")
-            if entry is not None and short not in entry.wanted_by:
+            if entry is None:
+                continue
+            delivered = (
+                key == verify_customer
+                and hdd_index
+                and folder_scan.match_title(title, hdd_index, {}, threshold).status == folder_scan.STATUS_EXTRACTED
+            )
+            if delivered:
+                if short not in entry.delivered_to:
+                    entry.delivered_to.append(short)
+            elif short not in entry.wanted_by:
                 entry.wanted_by.append(short)
 
     return sorted(entries.values(), key=lambda e: (not e.deletable, e.label.lower()))
@@ -89,7 +116,12 @@ class GameCleanupPanel(tk.Frame):
         super().__init__(master, bg=APP_BG)
         self._entries: list[CleanupEntry] = []
         self._row_map: dict[str, CleanupEntry] = {}
+        self._customers = [(k, d) for k, d in game_settings.LIST_DEFS if k.startswith("cust")]
+        self._label_to_key = {d: k for k, d in self._customers}
+        self._verify_customer = tk.StringVar(value=self._customers[0][1])
+        self._verify_folder = tk.StringVar(value="")
         self._build_ui()
+        self._load_verify_folder_for_customer()
 
     def _build_ui(self) -> None:
         top = tk.Frame(self, bg=APP_BG)
@@ -98,9 +130,29 @@ class GameCleanupPanel(tk.Frame):
             top,
             text="Hanya scan folder game LOKAL (bukan HDD eksternal). Game yang tidak ada di "
             "daftar pesanan customer mana pun = BOLEH DIHAPUS. Isi dulu semua slot pesanan "
-            "di tab Downloader, lalu scan di sini.",
+            "di tab Downloader, lalu scan di sini. Mau hapus game yang SUDAH dikirim ke HDD "
+            "customer? Pilih customer + folder HDD-nya di bawah dulu - game yang sudah pasti "
+            "ada di HDD itu ikut boleh dihapus, KECUALI masih dipesan customer lain juga.",
             font=("Segoe UI", 9), fg=MUTED_FG, bg=APP_BG, anchor="w", justify="left", wraplength=1100,
         ).pack(fill="x")
+
+        verify_row = tk.Frame(self, bg=PANEL_BG, highlightthickness=1, highlightbackground=BORDER_COLOR)
+        verify_row.pack(fill="x", padx=20, pady=(0, 10))
+        tk.Label(
+            verify_row, text="✅ Sudah dikirim ke HDD:", font=("Segoe UI", 9, "bold"),
+            fg=TEXT_FG, bg=PANEL_BG,
+        ).pack(side="left", padx=(12, 6), pady=8)
+        customer_box = ttk.Combobox(
+            verify_row, textvariable=self._verify_customer, state="readonly", width=12,
+            values=[d for _k, d in self._customers],
+        )
+        customer_box.pack(side="left", pady=8)
+        customer_box.bind("<<ComboboxSelected>>", lambda _e: self._load_verify_folder_for_customer())
+        tk.Label(
+            verify_row, textvariable=self._verify_folder, font=("Consolas", 9),
+            fg=MUTED_FG, bg=PANEL_BG, anchor="w",
+        ).pack(side="left", fill="x", expand=True, padx=(10, 8), pady=8)
+        _create_btn(verify_row, text="Pilih Folder HDD...", command=self._choose_verify_folder, side="right", padx=(0, 12), pady=6)
 
         bar = tk.Frame(self, bg=APP_BG)
         bar.pack(fill="x", padx=20, pady=(0, 10))
@@ -144,6 +196,25 @@ class GameCleanupPanel(tk.Frame):
         self.tree.tag_configure("delete", foreground="#6ee7b7")
         self.tree.tag_configure("keep", foreground="#f87171")
 
+    def _verify_customer_key(self) -> str:
+        return self._label_to_key.get(self._verify_customer.get(), self._customers[0][0])
+
+    def _load_verify_folder_for_customer(self) -> None:
+        s = game_settings.load_settings()
+        saved = (s.get("customer_hdd_folders", {}) or {}).get(self._verify_customer_key(), "")
+        self._verify_folder.set(saved)
+
+    def _choose_verify_folder(self) -> None:
+        chosen = filedialog.askdirectory(title="Pilih folder HDD customer yang sudah dikirim")
+        if not chosen:
+            return
+        self._verify_folder.set(chosen)
+        s = game_settings.load_settings()
+        folders = dict(s.get("customer_hdd_folders", {}) or {})
+        folders[self._verify_customer_key()] = chosen
+        s["customer_hdd_folders"] = folders
+        game_settings.save_settings(s)
+
     def _scan(self) -> None:
         s = game_settings.load_settings()
         # Local install folder only - never the external HDD (extracted_root_2).
@@ -155,12 +226,19 @@ class GameCleanupPanel(tk.Frame):
             messagebox.showwarning("Folder Belum Diatur", "Atur folder game / Downloads dulu di Settings.")
             return
 
+        verify_folder = self._verify_folder.get().strip()
+        if verify_folder and not os.path.isdir(verify_folder):
+            messagebox.showwarning("Folder HDD Tidak Ditemukan", f"Folder tidak ada:\n{verify_folder}")
+            return
+        verify_customer = self._verify_customer_key() if verify_folder else None
+
         self._summary.config(text="Sedang scan...", fg=ACCENT)
 
         def worker() -> None:
             entries = classify(
                 roots, downloads, s.get("order_lists", {}) or {},
                 s.get("release_suffixes"), s.get("fuzzy_threshold", 0.72),
+                verify_customer=verify_customer, verify_folder=verify_folder,
             )
             self.after(0, lambda: self._render(entries))
 
@@ -175,9 +253,13 @@ class GameCleanupPanel(tk.Frame):
         for i, e in enumerate(entries, 1):
             if e.deletable:
                 decision, tag = "🟢 BOLEH DIHAPUS", "delete"
+                if e.delivered_to:
+                    decision += " - sudah dikirim ke " + ", ".join(e.delivered_to)
                 deletable += 1
             else:
                 decision, tag = "🔴 JANGAN - dipesan " + ", ".join(e.wanted_by), "keep"
+                if e.delivered_to:
+                    decision += " (sudah dikirim ke " + ", ".join(e.delivered_to) + ")"
             kind = "✅ Sudah diekstrak" if e.extracted else "📦 Belum (arsip)"
             iid = self.tree.insert("", "end", values=(i, e.label, kind, decision, e.path), tags=(tag,))
             self._row_map[iid] = e
