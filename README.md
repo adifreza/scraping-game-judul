@@ -49,6 +49,19 @@ atau double-click `dist/RunGameLauncher.bat`
 6. Manual click "Download" untuk setiap game
 7. IDM akan auto-capture download link
 
+### Archive.org ke Antrean IDM
+
+Untuk game PS2 yang berhasil ditemukan di Archive.org Redump:
+
+1. Jalankan proses resolusi game seperti biasa
+2. Klik **Archive → IDM Queue**
+3. Semua URL direct Archive.org yang berhasil ditemukan akan ditambahkan ke antrean IDM
+4. Klik **Start Queue** di IDM jika ingin mulai mengunduh
+
+Program mencari `IDMan.exe` di instalasi IDM standar. Jika IDM dipasang di lokasi khusus,
+atur environment variable `IDMAN_PATH` ke file executable tersebut. Link Archive.org
+mungkin tetap memerlukan sesi/login Archive.org yang valid.
+
 ### Method 2: Run Python Script
 
 Jika ingin menjalankan dari source code:

@@ -1,5 +1,6 @@
 import os
 import re
+import subprocess
 import threading
 import webbrowser
 import tkinter as tk
@@ -15,6 +16,7 @@ import game_copy
 import game_ps2_serials
 import game_status_scanner
 import game_cleanup
+import game_idm
 
 
 VERSION = "2.6"
@@ -537,6 +539,7 @@ class GameLauncherMultiSite(tk.Tk):
 
         utility = tk.Frame(right, bg=APP_BG)
         utility.pack(side="bottom", fill="x", pady=(8, 0))
+        self._create_btn(utility, "⬇ Archive → IDM Queue", self._add_archive_to_idm, "ghost", side="left")
         self._create_btn(utility, "\U0001F310 Steamrip", self._open_all_steamrip_downloads, "ghost", side="left")
         self._create_btn(utility, "\U0001F310 Romsfun", self._open_all_romsfun_downloads, "ghost", side="left", padx=(6, 0))
         self._create_btn(utility, "✕ Tutup Steamrip", self._close_steamrip_windows, "ghost", side="left", padx=(6, 0))
@@ -1314,6 +1317,9 @@ class GameLauncherMultiSite(tk.Tk):
             return
 
         result = next((r for r in self._resolved_rows if r.get("selected_host_link") == link), None)
+        if result and result.get("selected_host_name") == "Archive.org Redump":
+            self._log("Archive.org link disimpan di aplikasi; gunakan Archive → IDM Queue untuk mengirimnya ke IDM.")
+            return
         self._open_link(result)
         self._log(f"Opened: {link}")
 
@@ -1325,6 +1331,8 @@ class GameLauncherMultiSite(tk.Tk):
         picks the right title/version themselves; Romsfun opens its resolved
         download page the same way."""
         if not result:
+            return
+        if result.get("selected_host_name") == "Archive.org Redump":
             return
         url = result.get("selected_host_link")
         if url and url != "-":
@@ -1352,7 +1360,10 @@ class GameLauncherMultiSite(tk.Tk):
 
     def _open_all_romsfun_downloads(self) -> None:
         """Open all Romsfun download page links in browser"""
-        romsfun_results = self._gather_resolved_results("romsfun")
+        romsfun_results = [
+            result for result in self._gather_resolved_results("romsfun")
+            if result.get("selected_host_name") != "Archive.org Redump"
+        ]
 
         if not romsfun_results:
             messagebox.showinfo("No Links", "No Romsfun download links found")
@@ -1363,13 +1374,43 @@ class GameLauncherMultiSite(tk.Tk):
 
         self._log(f"Opened {len(romsfun_results)} Romsfun download links")
 
+    def _add_archive_to_idm(self) -> None:
+        """Add resolved Archive.org direct URLs to IDM's download queue."""
+        archive_results = [
+            result for result in self._resolved_rows
+            if result.get("selected_host_name") == "Archive.org Redump"
+            and result.get("selected_host_link")
+            and result.get("selected_host_link") != "-"
+        ]
+        if not archive_results:
+            messagebox.showinfo("No Archive Links", "Belum ada link direct Archive.org yang berhasil ditemukan.")
+            return
+
+        added = 0
+        try:
+            for result in archive_results:
+                game_idm.add_to_queue(str(result["selected_host_link"]))
+                added += 1
+        except FileNotFoundError as error:
+            messagebox.showerror(
+                "IDM Tidak Ditemukan",
+                f"{error}. Install IDM atau atur environment variable IDMAN_PATH ke lokasi IDMan.exe.",
+            )
+            return
+        except (OSError, subprocess.SubprocessError) as error:
+            messagebox.showerror("Gagal Menambahkan ke IDM", str(error))
+            return
+
+        self._log(f"✓ {added} link Archive.org masuk ke queue IDM. Klik Start Queue di IDM untuk memulai.")
+
     def _auto_open_all_resolved_downloads(self) -> None:
-        """Open every resolved Steamrip AND Romsfun (PS2) result together in
-        the browser, right after a scraping run finishes - so PS2 titles open
-        automatically just like Steamrip ones do, instead of needing the two
-        toolbar buttons clicked separately by hand."""
+        """Open resolved Steamrip and Romsfun results after scraping.
+        Archive.org results stay in the table until sent to IDM manually."""
         steamrip_results = self._gather_resolved_results("steamrip")
-        romsfun_results = self._gather_resolved_results("romsfun")
+        romsfun_results = [
+            result for result in self._gather_resolved_results("romsfun")
+            if result.get("selected_host_name") != "Archive.org Redump"
+        ]
 
         if not steamrip_results and not romsfun_results:
             self._log("ℹ No resolved download links to open yet.")

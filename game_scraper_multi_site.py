@@ -566,9 +566,9 @@ def open_game_search_tabs(
                             result_fn(result)
                     continue
 
-                # PS2: try an exact-title match on archive.org's Redump set first
-                # (opened as a real Brave tab so IDM's extension captures it inside
-                # whatever archive.org login session is already in that browser).
+                # PS2: try an exact-title match on archive.org's Redump set first.
+                # Keep the direct URL in the result table for the IDM queue action;
+                # Archive.org links must not be opened automatically in Brave.
                 if detect_romsfun_platform(game_name) == "ps2":
                     from game_archiveorg import find_exact_match, download_url
 
@@ -577,17 +577,7 @@ def open_game_search_tabs(
                         item_id, filename = match
                         direct_link = download_url(item_id, filename)
                         if log_fn:
-                            log_fn(f"✓ Found on archive.org (Redump PS2): {filename}")
-
-                        if open_in_browser:
-                            if log_fn:
-                                log_fn(f"→ Opening in Brave: {direct_link}")
-                            try:
-                                browser.open(direct_link)
-                                time.sleep(0.5)
-                            except Exception as e:
-                                if log_fn:
-                                    log_fn(f"⚠ Failed to open in Brave: {e}")
+                            log_fn(f"✓ Found on archive.org (Redump PS2), saved in app: {filename}")
 
                         result = {
                             "game_name": game_name,
